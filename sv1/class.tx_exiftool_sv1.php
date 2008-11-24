@@ -56,6 +56,19 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 	}
 
 	/**
+	 * write to devlog
+	 *
+	 * @param string $title Title / short description
+	 * @param int $severity Severity: 0 is info, 1 is notice, 2 is warning, 3 is
+	 * fatal error, -1 is "OK" message
+	 * @param mixed $somearray array with debug-content
+	 */
+	function devlog($title, $severity = 1, $somearray = array()) {
+		if (!TYPO3_DLOG) return 0;
+		t3lib_div::devLog($title, $this->extKey, -1, $somearray);
+	}
+
+	/**
 	 * performs the service processing
 	 *
 	 * @param	string		Content which should be processed.
@@ -86,30 +99,90 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 			$output = array();
 			$ret = -1;
 			exec($cmd, $output, $ret);
-/*
+			if (1 == $service_conf['properties']['debug']) {
+				$this->devlog('Unparsed Meta-Data', 0, $output);
+			}
 
-// find in ext/dam/mod_file/debug10.txt
-$fp = fopen('debug10.txt','w');
-fwrite($fp, $this->info['params']."\nDEBUG\n\n".print_r($output, true));
-fclose($fp);
-*/
+			if ($ret != 0) {
+				// TODO: do some magick error handling - however?
+				$this->devlog('exec return error', 3, $ret);
+			}
+			$t3lib_cs = t3lib_div::makeInstance("t3lib_cs");
+			$service_conf['properties']['fromCharset'] = $t3lib_cs->parse_charset($service_conf['properties']['fromCharset']);
+			// check if charset is known by TYPO3
+			if (false === array_search($service_conf['properties']['fromCharset'], $t3lib_cs->synonyms)) {
+				// TODO: error handling
+				$this->devlog('unknown charset', 2, $service_conf['properties']['fromCharset']);
+				$service_conf['properties']['fromCharset'] = 'iso-8859-1';
+			}
+
+
+			// TODO: Character Conversion!
+			// $service_conf['properties']['fromCharset'] (f.e.)
+
 			$outputArray = array();
 			foreach ($output as $str) {
 				// exiftool gives us "editstatus     : value of editstatus"
 				// so we have to split at the first ":" and trim than
-				$key = strtolower(trim(substr($str, 0, strpos($str,':'))));
-				$value = trim(substr($str,strpos($str,':')+1));
+				$key = mb_strtolower(trim(mb_substr($str, 0, mb_strpos($str,':'))));
+				$value = trim(mb_substr($str,mb_strpos($str,':')+1));
 				$outputArray[$key] = $value;
 			}
+			// TODO: check internal Vars - they are not used correctly
+
 			foreach ($match as $field => $exiftag) {
+				if ('.' == mb_substr($field,-1,1)) {
+					// we can do things like:
+					// abstract = description
+					// abstract.1 = abstract
+					// abstract.2 = something else
+					//
+					// abstract.1 should only be processed after "abstract"
+					// if "abstract" exists, we should skip all "abstract.x" because they
+					// are processed right after "abstract"
+					if (isset($match[mb_substr($field,0,-1)])) {
+						continue;
+					}
+					// if "abstract" does not exists, we should create it,
+					// so "abstract.x" will be processed too
+					$field = mb_substr($field,0,-1);
+					$exiftag = '';
+				}
+
 				// via PAGE-TS setting we can define in which field
 				// the value should be stored
-				$this->iptc[$field] = ''.$outputArray[$exiftag];
+				$this->iptc[$field] = (!isset($outputArray[mb_strtolower($exiftag)]))?'':''.$outputArray[mb_strtolower($exiftag)];
+				// If there is no default Config, or empty content, test for other
+				// fields. f.e. no IPTC data, but EXIF or XMP
+				if (0 == mb_strlen($this->iptc[$field]) && isset($match[$field.'.'])) {
+					$i = 1;
+					while (0 == mb_strlen($this->iptc[$field]) && isset($match[$field.'.'][$i])) {
+						// f.e.
+						// abstract = description
+						// abstract.1 = abstract
+						// abstract.2 = something else
+						$this->iptc[$field] = (!isset($outputArray[mb_strtolower($match[$field.'.'][$i])]))?'':''.$outputArray[mb_strtolower($match[$field.'.'][$i])];
+						$i++;
+					}
+				}
+
 				$this->out['fields'][$field] = $this->iptc[$field];
 			}
+			// character conversion, before postProcess,
+			// so we could compare fields in database with fields
+			// from our metadata
+			$t3lib_cs->convArray($this->iptc, $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
+			$t3lib_cs->convArray($this->out['fields'], $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
+
+			// TODO: conversion of Informations, f.e. Date, Keywords etc.
+			// TODO: build hook
+
 			$this->postProcess();
 			$this->out['fields']['meta']['iptc'] = $this->iptc;
-
+// t3lib_div::debug($this->out['fields']);
+			if (1 == $service_conf['properties']['debug']) {
+				$this->devlog('Parsed Meta-Data', 0, $this->out['fields']);
+			}
 		} else {
 			$this->errorPush(T3_ERR_SV_NO_INPUT, 'No or empty input.');
 		}
@@ -121,7 +194,6 @@ fclose($fp);
 	 * processing of values
 	 */
 	function postProcess () {
-
 
 		if (is_array($this->iptc['keywords'])) {
 			$this->out['fields']['keywords'] = $this->iptc['keywords'] = implode(',', $this->iptc['keywords']);
@@ -148,11 +220,6 @@ fclose($fp);
 				}
 			}
 		}
-
-		$csConvObj = t3lib_div::makeInstance('t3lib_cs');
-		$csConvObj->convArray($this->iptc, 'iso-8859-1', 'utf-8');
-		$csConvObj->convArray($this->out['fields'], 'iso-8859-1', $this->conf['wantedCharset']);
-
 	}
 
 	/**

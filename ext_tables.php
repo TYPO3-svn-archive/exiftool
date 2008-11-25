@@ -7,11 +7,11 @@ t3lib_extMgm::addService($_EXTKEY,  'metaExtract' /* sv type */,  'tx_exiftool_s
 			'title' => 'exiftool - iptc',
 			'description' => 'Use external exiftool for reading meta-data.',
 
-			'subtype' => 'image:iptc',
+			'subtype' => 'image:*',
 
 			'available' => TRUE,
-			'priority' => 60,
-			'quality' => 90,
+			'priority' => 99,
+			'quality' => 99,
 
 			'os' => 'unix',
 			'exec' => 'perl',

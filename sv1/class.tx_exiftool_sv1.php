@@ -87,19 +87,20 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 
 		// TS PAGE-Config
 		$page_id = $this->conf['meta']['fields']['pid'];
-		$service_conf = t3lib_BEfunc::getModTSconfig($page_id,'tx_exiftool_sv1');
+		$this->service_conf = t3lib_BEfunc::getModTSconfig($page_id,'tx_exiftool_sv1');
 
-		$service_conf['properties']['exiftoolparams'] = mb_strlen($service_conf['properties']['exiftoolparams']) > 0?$service_conf['properties']['exiftoolparams']:'  -S -iptc:all ';
-		$this->info['params'] = ' '.t3lib_extMgm::extPath('exiftool').'exiftool/exiftool '.$service_conf['properties']['exifparams'].' ';
+		$this->service_conf['properties']['exiftoolparams'] = mb_strlen($this->service_conf['properties']['exiftoolparams']) > 0?$this->service_conf['properties']['exiftoolparams']:'  -S -iptc:all ';
+		$this->info['params'] = ' '.t3lib_extMgm::extPath('exiftool').'exiftool/exiftool '.$this->service_conf['properties']['exifparams'].' ';
 
-		$match = $service_conf['properties']['match.'];
-
+		$match = $this->service_conf['properties']['match.'];
+// t3lib_div::debug('exiftool'.$page_id);
+// t3lib_div::debug($this->service_conf);
 		if($inputFile = $this->getInputFile()) {
 			$cmd = t3lib_exec::getCommand($this->info['exec']).$this->info['params'].' "'.$inputFile.'"';
 			$output = array();
 			$ret = -1;
 			exec($cmd, $output, $ret);
-			if (1 == $service_conf['properties']['debug']) {
+			if (1 == $this->service_conf['properties']['debug']) {
 				$this->devlog('Unparsed Meta-Data', 0, $output);
 			}
 
@@ -108,17 +109,21 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 				$this->devlog('exec return error', 3, $ret);
 			}
 			$t3lib_cs = t3lib_div::makeInstance("t3lib_cs");
-			$service_conf['properties']['fromCharset'] = $t3lib_cs->parse_charset($service_conf['properties']['fromCharset']);
+			$this->service_conf['properties']['fromCharset'] = $t3lib_cs->parse_charset($this->service_conf['properties']['fromCharset']);
 			// check if charset is known by TYPO3
-			if (false === array_search($service_conf['properties']['fromCharset'], $t3lib_cs->synonyms)) {
+			if (false === array_search($this->service_conf['properties']['fromCharset'], $t3lib_cs->synonyms)) {
 				// TODO: error handling
-				$this->devlog('unknown charset', 2, $service_conf['properties']['fromCharset']);
-				$service_conf['properties']['fromCharset'] = 'iso-8859-1';
+				$this->devlog('unknown charset', 2, $this->service_conf['properties']['fromCharset']);
+				$this->service_conf['properties']['fromCharset'] = 'iso-8859-1';
 			}
 
-
-			// TODO: Character Conversion!
-			// $service_conf['properties']['fromCharset'] (f.e.)
+// TODO: Character Conversion!
+			// character conversion, before postProcess,
+			// so we could compare fields in database with fields
+			// from our metadata
+			// $t3lib_cs->convArray($this->iptc, $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
+			// $t3lib_cs->convArray($this->out['fields'], $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
+			$t3lib_cs->convArray($output, $this->service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
 
 			$outputArray = array();
 			foreach ($output as $str) {
@@ -129,7 +134,7 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 				$outputArray[$key] = $value;
 			}
 			// TODO: check internal Vars - they are not used correctly
-
+			if (!is_array($match)) { return false; }
 			foreach ($match as $field => $exiftag) {
 				if ('.' == mb_substr($field,-1,1)) {
 					// we can do things like:
@@ -168,19 +173,13 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 
 				$this->out['fields'][$field] = $this->iptc[$field];
 			}
-			// character conversion, before postProcess,
-			// so we could compare fields in database with fields
-			// from our metadata
-			$t3lib_cs->convArray($this->iptc, $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
-			$t3lib_cs->convArray($this->out['fields'], $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
-
 			// TODO: conversion of Informations, f.e. Date, Keywords etc.
 			// TODO: build hook
 
 			$this->postProcess();
 			$this->out['fields']['meta']['iptc'] = $this->iptc;
 // t3lib_div::debug($this->out['fields']);
-			if (1 == $service_conf['properties']['debug']) {
+			if (1 == $this->service_conf['properties']['debug']) {
 				$this->devlog('Parsed Meta-Data', 0, $this->out['fields']);
 			}
 		} else {
@@ -189,6 +188,32 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 		return $this->getLastError();
 	}
 
+	/**
+	 * Started with TS-Config:
+	 * category.lookUpCategory = 1
+	 * category.lookUpCategory.insertNew = 1
+	 * category.lookUpCategory.splitToken = ,
+	 *
+	 * To get inserted categorys we need: $meta ['category'] = '12,15';
+	 *
+	 * @return string komma separated list of category uids
+	 */
+	function lookUpCategory($value, $splitToken = ',', $insertNew = false) {
+		if (0 == mb_strlen($splitToken)) { $splitToken = ','; }
+
+		if (!is_array($value)) {
+			$value = t3lib_div::trimExplode($splitToken, $value);
+		}
+		if (0 == count($value)) return '';
+		$categoryList = array();
+		foreach ($value as $category) {
+			$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('uid', 'tx_dam_cat', 'title LIKE '.$GLOBALS['TYPO3_DB']->fullQuoteStr($category, 'tx_dam_cat'));
+			if ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res))	{
+				$categoryList[] = $row['uid'];
+			}
+		}
+		return implode(',',$categoryList);
+	}
 
 	/**
 	 * processing of values
@@ -198,15 +223,9 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 		if (is_array($this->iptc['keywords'])) {
 			$this->out['fields']['keywords'] = $this->iptc['keywords'] = implode(',', $this->iptc['keywords']);
 		}
-		if (is_array($this->iptc['category'])) {
-			$this->iptc['category'] = implode("\n", $this->iptc['category']);
-		}
-		if (is_array($this->iptc['supplemental_category'])) {
-			$this->iptc['supplemental_category'] = implode("\n", $this->iptc['supplemental_category']);
-		}
-		if (is_array($this->iptc['subject_reference'])) {
-			$this->iptc['subject_reference'] = implode("\n", $this->iptc['subject_reference']);
-		}
+
+		$this->out['fields']['category'] = $this->lookUpCategory($this->iptc['category'], $this->service_conf['properties']['category.']['lookUpCategory.']['splitToken'], (1 == $this->service_conf['properties']['category.']['lookUpCategory.']['insertNew']));
+		$this->out['fields']['file_orig_loc_desc']  = 'exiftool '.$this->iptc['category'];
 
 			// detect country code
 		if ($this->out['fields']['loc_country']=='' AND $this->iptc['country']) {

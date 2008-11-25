@@ -1,0 +1,4 @@
+  # cat=basic/enable; type=integer; label= Media Pid: the page-id for the page with tsconfig for writing meta-data into files
+mediapid =
+  # cat=basic/enable; type=boolean; label= Write Meta-Data into files
+writeMetaData = 0

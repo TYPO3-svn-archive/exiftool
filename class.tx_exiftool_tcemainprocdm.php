@@ -2,7 +2,7 @@
 /***************************************************************
 *  Copyright notice
 *
-*  (c) 2006 Benoit Norrin <info@dlcube.com>
+*  (c)  2008 Martin Holtz
 *  All rights reserved
 *
 *  This script is part of the TYPO3 project. The TYPO3 project is
@@ -114,7 +114,19 @@ class tx_exiftool_tcemainprocdm
 					}
 				}
 
-				$this->info['params'] .= ' '.implode(' ',$params).' ';
+
+
+				$t3lib_cs = t3lib_div::makeInstance("t3lib_cs");
+				$this->service_conf['properties']['fileCharset'] = $t3lib_cs->parse_charset($this->service_conf['properties']['fileCharset']);
+				// check if charset is known by TYPO3
+				if (false === array_search($this->service_conf['properties']['fileCharset'], $t3lib_cs->synonyms)) {
+					// TODO: error handling
+					$this->service_conf['properties']['fileCharset'] = 'utf-8';
+				}
+				$t3lib_cs->convArray($params, $this->service_conf['properties']['dbCharset'], $this->service_conf['properties']['fileCharset'], true);
+
+				$this->info['params'] .= ' '.addslashes(implode(' ',$params)).' ';
+
 				$cmd = t3lib_exec::getCommand($this->info['exec']).$this->info['params'].' '.$file.'';
 				$output = array();
 				$ret = -1;

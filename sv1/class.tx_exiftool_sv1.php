@@ -109,12 +109,12 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 				$this->devlog('exec return error', 3, $ret);
 			}
 			$t3lib_cs = t3lib_div::makeInstance("t3lib_cs");
-			$this->service_conf['properties']['fromCharset'] = $t3lib_cs->parse_charset($this->service_conf['properties']['fromCharset']);
+			$this->service_conf['properties']['fileCharset'] = $t3lib_cs->parse_charset($this->service_conf['properties']['fileCharset']);
 			// check if charset is known by TYPO3
-			if (false === array_search($this->service_conf['properties']['fromCharset'], $t3lib_cs->synonyms)) {
+			if (false === array_search($this->service_conf['properties']['fileCharset'], $t3lib_cs->synonyms)) {
 				// TODO: error handling
-				$this->devlog('unknown charset', 2, $this->service_conf['properties']['fromCharset']);
-				$this->service_conf['properties']['fromCharset'] = 'iso-8859-1';
+				$this->devlog('unknown charset', 2, $this->service_conf['properties']['fileCharset']);
+				$this->service_conf['properties']['fileCharset'] = 'utf-8';
 			}
 
 // TODO: Character Conversion!
@@ -123,7 +123,7 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 			// from our metadata
 			// $t3lib_cs->convArray($this->iptc, $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
 			// $t3lib_cs->convArray($this->out['fields'], $service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
-			$t3lib_cs->convArray($output, $this->service_conf['properties']['fromCharset'], $this->conf['wantedCharset'], true);
+			$t3lib_cs->convArray($output, $this->service_conf['properties']['fileCharset'], $this->conf['wantedCharset'], true);
 
 			$outputArray = array();
 			foreach ($output as $str) {

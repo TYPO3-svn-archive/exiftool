@@ -200,16 +200,26 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 	 */
 	function lookUpCategory($value, $splitToken = ',', $insertNew = false) {
 		if (0 == mb_strlen($splitToken)) { $splitToken = ','; }
-
 		if (!is_array($value)) {
 			$value = t3lib_div::trimExplode($splitToken, $value);
 		}
 		if (0 == count($value)) return '';
 		$categoryList = array();
+
 		foreach ($value as $category) {
 			$res = $GLOBALS['TYPO3_DB']->exec_SELECTquery('uid', 'tx_dam_cat', 'title LIKE '.$GLOBALS['TYPO3_DB']->fullQuoteStr($category, 'tx_dam_cat'));
 			if ($row = $GLOBALS['TYPO3_DB']->sql_fetch_assoc($res))	{
 				$categoryList[] = $row['uid'];
+			} elseif ($insertNew) {
+				// neue Kategorie anlegen
+				$fields_values = array(
+					'title' => $category,
+					'pid' => $this->conf['meta']['fields']['pid']
+				);
+				$res = $GLOBALS['TYPO3_DB']->exec_INSERTquery ('tx_dam_cat', $fields_values);
+				$tmp  = $GLOBALS['TYPO3_DB']->sql_insert_id();
+
+				$categoryList[] = (int)$tmp;
 			}
 		}
 		return implode(',',$categoryList);
@@ -224,9 +234,10 @@ class tx_exiftool_sv1 extends t3lib_svbase {
 			$this->out['fields']['keywords'] = $this->iptc['keywords'] = implode(',', $this->iptc['keywords']);
 		}
 
-		$this->out['fields']['category'] = $this->lookUpCategory($this->iptc['category'], $this->service_conf['properties']['category.']['lookUpCategory.']['splitToken'], (1 == $this->service_conf['properties']['category.']['lookUpCategory.']['insertNew']));
+		if (1 == (int)$this->service_conf['properties']['match.']['category.']['lookUpCategory']) {
+			$this->out['fields']['category'] = $this->lookUpCategory($this->iptc['category'], $this->service_conf['properties']['match.']['category.']['lookUpCategory.']['splitToken'], isset($this->service_conf['properties']['match.']['category.']['lookUpCategory.']['insertNew']) && (1 == (int)$this->service_conf['properties']['match.']['category.']['lookUpCategory.']['insertNew']));
+		}
 		$this->out['fields']['file_orig_loc_desc']  = 'exiftool '.$this->iptc['category'];
-
 			// detect country code
 		if ($this->out['fields']['loc_country']=='' AND $this->iptc['country']) {
 			$country_en = $this->iptc['country'];

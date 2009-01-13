@@ -2,3 +2,7 @@
 mediapid =
   # cat=basic/enable; type=boolean; label= Write Meta-Data into files
 writeMetaData = 0
+  # cat=basic/enable; type=integer; label= exiftool can be installed at your system. 0: use shipped with, 1: use system if present 
+useShippedWithExiftool = 0
+  # cat=basic/enable; type=boolean; label=Verbose debugging options
+debug = 0

@@ -55,8 +55,8 @@ tx_exiftool_sv1.match {
 	creator.1 = creator
 	creator.2 = Artist
 	creator.3 = by-line
-        creator.tag.1 = creator
-        creator.tag.2 = Artist
+        creator.tag.1 = -creator
+        creator.tag.2 = -Artist
         creator.tag.3 = -IPTC:by-line
 
 	description.1 = caption-abstract

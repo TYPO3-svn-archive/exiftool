@@ -1,4 +1,10 @@
 (add new changes on top of this file)
+09-01-13 Martin Holtz
+	* added some devlog to class.tx_exiftool_tcemainprocdm.php
+	* correct some errors in example_page_ts_config.ts
+	* added function sanitize to class.tx_exiftool_tcemainprocdm.php as base for securing exec-calls
+	* set to 0.1.4
+	* updated manual field.tag = -IPTC <- has always starts with a "-"
 
 08-10-30 Martin Holtz
 	* Upload to forge

@@ -2,7 +2,7 @@ tx_exiftool_sv1 {
 	exiftoolparams = -S -ALL
         # default output of exiftool
 	fileCharset = utf-8
-        dbCharset = iso-8859-1
+    dbCharset = iso-8859-1
 	# For debug the devlog will be used,
 	# $TYPO3_CONF_VARS['SYS']['enable_DLOG'] = 1;
 	# has to be set for that!

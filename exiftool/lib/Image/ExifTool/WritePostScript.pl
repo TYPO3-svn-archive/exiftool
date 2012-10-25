@@ -141,7 +141,7 @@ sub WritePSDirectory($$$$$)
         $dirInfo{DataLen} = $dirInfo{DirLen} = length $xmp;
         $dirInfo{DataPt} = \$xmp;
     }
-    my $tagTablePtr = GetTagTable("Image::ExifTool::${dirName}::Main");
+    my $tagTablePtr = Image::ExifTool::GetTagTable("Image::ExifTool::${dirName}::Main");
     my $val = $exifTool->WriteDirectory(\%dirInfo, $tagTablePtr);
     if (defined $val) {
         $dataPt = \$val;    # use modified directory
@@ -262,10 +262,11 @@ sub EncodeTag($$)
         $val = "($val)";
     }
     my $line = "%%$tag: $val";
-    # postscript line limit is 255 characters
+    # postscript line limit is 255 characters (but it seems that
+    # the limit may be 254 characters if the DOS CR/LF is used)
     # --> split if necessary using continuation comment "%%+"
     my $n;
-    for ($n=255; length($line)>$n; $n+=255+length($/)) {
+    for ($n=254; length($line)>$n; $n+=254+length($/)) {
         substr($line, $n, 0) = "$/%%+";
     }
     return $line . $/;
@@ -287,13 +288,10 @@ sub WriteNewTags($$$)
 
     foreach $tag (sort keys %$newTags) {
         my $tagInfo = $$newTags{$tag};
-        my $newValueHash = $exifTool->GetNewValueHash($tagInfo);
-        next unless Image::ExifTool::IsCreating($newValueHash);
-        my $val = Image::ExifTool::GetNewValues($newValueHash);
-        if ($exifTool->Options('Verbose') > 1) {
-            my $out = $exifTool->Options('TextOut');
-            print $out "    + PostScript:$$tagInfo{Name} = '$val'\n";
-        }
+        my $nvHash = $exifTool->GetNewValueHash($tagInfo);
+        next unless Image::ExifTool::IsCreating($nvHash);
+        my $val = $exifTool->GetNewValues($nvHash);
+        $exifTool->VerboseValue("+ PostScript:$$tagInfo{Name}", $val);
         Write($outfile, EncodeTag($tag, $val)) or $success = 0;
         ++$exifTool->{CHANGED};
     }
@@ -438,17 +436,18 @@ sub WritePS($$)
 #
 # rewrite PostScript data
 #
-    my $oldsep = SetInputRecordSeparator($raf);
-    unless ($oldsep and $raf->ReadLine($buff)) {
+    local $/ = GetInputRecordSeparator($raf);
+    unless ($/ and $raf->ReadLine($buff)) {
         $exifTool->Error('Invalid PostScript data');
         return 1;
     }
     $data .= $buff;
-    unless ($data =~ /^%!PS-Adobe-3.(0|1)/) {
+    unless ($data =~ /^%!PS-Adobe-3\.(\d+)\b/ and $1 < 2) {
         if ($exifTool->Error("Document does not conform to DSC spec. Metadata may be unreadable by other apps", 1)) {
             return 1;
         }
     }
+    my $psRev = $1; # save PS revision number (3.x)
     Write($outfile, $data) or $err = 1;
     $flags{EPS} = 1 if $data =~ /EPSF/;
 
@@ -463,10 +462,10 @@ sub WritePS($$)
 
     # set XMP hint flag (1 for adding, 0 for deleting, undef for no change)
     $xmpHint = 1 if $$addDirs{XMP};
-    $xmpHint = 0 if $exifTool->{DEL_GROUP}->{XMP};
+    $xmpHint = 0 if $$exifTool{DEL_GROUP}{XMP};
     $$newTags{XMP_HINT} = $xmpHint if $xmpHint;  # add special tag to newTags list
 
-    my @lines;
+    my (@lines, $changedNL);
     my $altnl = ($/ eq "\x0d") ? "\x0a" : "\x0d";
 
     for (;;) {
@@ -476,8 +475,24 @@ sub WritePS($$)
             $raf->ReadLine($data) or last;
             $dos and CheckPSEnd($raf, $psEnd, $data);
             # split line if it contains other newline sequences
-            SplitLine(\$data, \@lines) if $data =~ /$altnl/;
+            if ($data =~ /$altnl/) {
+                if (length($data) > 500000 and IsPC()) {
+                    # patch for Windows memory problem
+                    unless ($changedNL) {
+                        $changedNL = 1;
+                        my $t = $/;
+                        $/ = $altnl;
+                        $altnl = $t;
+                        $raf->Seek(-length($data), 1);
+                        next;
+                    }
+                } else {
+                    # split into separate lines
+                    SplitLine(\$data, \@lines);
+                }
+            }
         }
+        undef $changedNL;
         if ($endToken) {
             # look for end token
             if ($data =~ m/^$endToken\s*$/is) {
@@ -539,20 +554,44 @@ sub WritePS($$)
         } elsif ($data =~ /^%%(?!Page:|PlateFile:|BeginObject:)(\w+): ?(.*)/s) {
             # rewrite information from PostScript tags in comments
             my ($tag, $val) = ($1, $2);
+            # handle Adobe Illustrator files specially
+            # - EVENTUALLY IT WOULD BE BETTER TO FIND ANOTHER IDENTIFICATION METHOD
+            #   (because Illustrator doesn't care if the Creator is changed)
+            if ($tag eq 'Creator' and $val =~ /^Adobe Illustrator/) {
+                # disable writing XMP to PS-format Adobe Illustrator files and
+                # older Illustrator EPS files becaues it confuses Illustrator
+                # (Illustrator 8 and older write PS-Adobe-3.0, newer write PS-Adobe-3.1)
+                if ($$editDirs{XMP} and $psRev == 0) {
+                    if ($flags{EPS}) {
+                        $exifTool->Warn("Can't write XMP to Illustrator 8 or older EPS files");
+                    } else {
+                        $exifTool->Warn("Can't write XMP to PS-format AI files");
+                    }
+                    # pretend like we wrote it already so we won't try to add it later
+                    $doneDir{XMP} = 1;
+                }
+                # don't allow "Creator" to be changed in Illustrator files
+                # (we need it to be able to recognize these files)
+                # --> find a better way to do this!
+                if ($$newTags{$tag}) {
+                    $exifTool->Warn("Can't change Postscript:Creator of Illustrator files");
+                    delete $$newTags{$tag};
+                }
+            }
             if ($$newTags{$tag}) {
                 my $tagInfo = $$newTags{$tag};
-                next unless ref $tagInfo;
                 delete $$newTags{$tag}; # write it then forget it
+                next unless ref $tagInfo;
                 # decode comment string (reading continuation lines if necessary)
                 $val = DecodeComment($val, $raf, \@lines, \$data);
                 $val = join $exifTool->Options('ListSep'), @$val if ref $val eq 'ARRAY';
-                my $newValueHash = $exifTool->GetNewValueHash($tagInfo);
-                if (Image::ExifTool::IsOverwriting($newValueHash, $val)) {
-                    $verbose > 1 and print $out "    - PostScript:$$tagInfo{Name} = '$val'\n";
-                    $val = Image::ExifTool::GetNewValues($newValueHash);
+                my $nvHash = $exifTool->GetNewValueHash($tagInfo);
+                if ($exifTool->IsOverwriting($nvHash, $val)) {
+                    $exifTool->VerboseValue("- PostScript:$$tagInfo{Name}", $val);
+                    $val = $exifTool->GetNewValues($nvHash);
                     ++$exifTool->{CHANGED};
                     next unless defined $val;   # next if tag is being deleted
-                    $verbose > 1 and print $out "    + PostScript:$$tagInfo{Name} = '$val'\n";
+                    $exifTool->VerboseValue("+ PostScript:$$tagInfo{Name}", $val);
                     $data = EncodeTag($tag, $val);
                 }
             }
@@ -656,7 +695,8 @@ sub WritePS($$)
         delete $$newTags{XMP_HINT};
         push @notDone, 'PostScript' if %$newTags;
         foreach $dir (qw{Photoshop ICC_Profile XMP}) {
-            push @notDone, $dir if $$editDirs{$dir} and not $doneDir{$dir};
+            push @notDone, $dir if $$editDirs{$dir} and not $doneDir{$dir} and
+                                   not $$exifTool{DEL_GROUP}{$dir};
         }
         @notDone and $exifTool->Warn("Couldn't write ".join('/',@notDone).' information');
     }
@@ -691,7 +731,7 @@ documents.  Six forms of meta information may be written:
 
 =head1 NOTES
 
-Currently, information is written only in the outter-level document.
+Currently, information is written only in the outer-level document.
 
 Photoshop will discard meta information in a PostScript document if it has
 to rasterize the image, and it will rasterize anything that doesn't contain
@@ -724,7 +764,7 @@ Thanks to Tim Kordick for his help testing the EPS writer.
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

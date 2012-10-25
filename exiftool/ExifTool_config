@@ -4,40 +4,54 @@
 # Description:  Sample user configuration file for Image::ExifTool
 #
 # Notes:        This example file shows how to define your own shortcuts and
-#               add new EXIF, IPTC, XMP, PNG, MIE and Composite tags.
+#               add new EXIF, IPTC, XMP, PNG, MIE and Composite tags, as well
+#               as how to specify preferred lenses for the LensID tag and
+#               define default values for ExifTool options.
 #
 #               Note that unknown tags may be extracted even if they aren't
 #               defined, but tags must be defined to be written.  Also note
 #               that it is possible to override an existing tag definition
-#               with a new tag.
+#               with a user-defined tag.
 #
 #               To activate this file, rename it to ".ExifTool_config" and
 #               place it in your home directory or the exiftool application
-#               directory.  This causes ExifTool to automatically load the file
-#               when run.  Your home directory is determined by the first
-#               defined of the following environment variables:
+#               directory.  (On Windows and Mac systems this must be done via
+#               the command line since the GUI's don't allow filenames to begin
+#               with a dot.  Use the "rename" command in Windows or "mv" on the
+#               Mac.)  This causes ExifTool to automatically load the file when
+#               run.  Your home directory is determined by the first defined of
+#               the following environment variables:
 #
 #                   1. EXIFTOOL_HOME
 #                   2. HOME
 #                   3. HOMEDRIVE + HOMEPATH
 #                   4. (the current directory)
 #
-#               This sample file defines the following 13 new tags as well as a
+#               Alternatively, the -config option of the exiftool application
+#               may be used to load a specific configuration file (note that
+#               it must be the first option on the command line):
+#
+#                   exiftool -config ExifTool_config ...
+#
+#               This sample file defines the following 16 new tags as well as a
 #               number of Shortcut and Composite tags:
 #
 #                   1.  EXIF:NewEXIFTag
-#                   2.  IPTC:NewIPTCTag
-#                   3.  XMP-xmp:NewXMPxmpTag
-#                   4.  XMP-xxx:NewXMPxxxTag1
-#                   5.  XMP-xxx:NewXMPxxxTag2
-#                   6.  XMP-xxx:NewXMPxxxTag3
-#                   7.  XMP-xxx:NewXMPxxxStructX
-#                   8.  XMP-xxx:NewXMPxxxStructY
-#                   9.  PNG:NewPngTag1
-#                  10.  PNG:NewPngTag2
-#                  11.  PNG:NewPngTag3
-#                  12.  MIE-Meta:NewMieTag1
-#                  13.  MIE-Test:NewMieTag2
+#                   2.  GPS:GPSPitch
+#                   3.  GPS:GPSRoll
+#                   4.  IPTC:NewIPTCTag
+#                   5.  XMP-xmp:NewXMPxmpTag
+#                   6.  XMP-exif:GPSPitch
+#                   7.  XMP-exif:GPSRoll
+#                   8.  XMP-xxx:NewXMPxxxTag1
+#                   9.  XMP-xxx:NewXMPxxxTag2
+#                  10.  XMP-xxx:NewXMPxxxTag3
+#                  11.  XMP-xxx:NewXMPxxxStruct
+#                  12.  PNG:NewPngTag1
+#                  13.  PNG:NewPngTag2
+#                  14.  PNG:NewPngTag3
+#                  15.  MIE-Meta:NewMieTag1
+#                  16.  MIE-Test:NewMieTag2
 #
 #               For detailed information on the definition of tag tables and
 #               tag information hashes, see lib/Image/ExifTool/README.
@@ -46,7 +60,7 @@
 # Shortcut tags are used when extracting information to simplify
 # commonly used commands.  They can be used to represent groups
 # of tags, or to provide an alias for a tag name.
-%Image::ExifTool::Shortcuts::UserDefined = (
+%Image::ExifTool::UserDefined::Shortcuts = (
     MyShortcut => ['exif:createdate','exposuretime','aperture'],
     MyAlias => 'FocalLengthIn35mmFormat',
 );
@@ -64,26 +78,47 @@
             Writable => 'int16u',
             WriteGroup => 'IFD0',
         },
+        # add more user-defined EXIF tags here...
+    },
+    # the Geotag feature writes these additional GPS tags if available:
+    'Image::ExifTool::GPS::Main' => {
+        0xd000 => {
+            Name => 'GPSPitch',
+            Writable => 'rational64s',
+        },
+        0xd001 => {
+            Name => 'GPSRoll',
+            Writable => 'rational64s',
+        },
     },
     # IPTC tags are added to a specific record type (ie. application record):
+    # (Note: IPTC tag ID's are limited to the range 0-255)
     'Image::ExifTool::IPTC::ApplicationRecord' => {
-        300 => {
+        160 => {
             Name => 'NewIPTCTag',
             Format => 'string[0,16]',
         },
+        # add more user-defined IPTC ApplicationRecord tags here...
     },
     # XMP tags may be added to existing namespaces:
     'Image::ExifTool::XMP::xmp' => {
         NewXMPxmpTag => { Groups => { 2 => 'Author' } },
+        # add more user-defined XMP-xmp tags here...
+    },
+    # special Geotag tags for XMP-exif:
+    'Image::ExifTool::XMP::exif' => {
+        GPSPitch => { Writable => 'rational', Groups => { 2 => 'Location' } },
+        GPSRoll  => { Writable => 'rational', Groups => { 2 => 'Location' } },
     },
     # new XMP namespaces (ie. xxx) must be added to the Main XMP table:
     'Image::ExifTool::XMP::Main' => {
-        xxx => {
+        xxx => { # <-- must be the same as the NAMESPACE prefix
             SubDirectory => {
                 TagTable => 'Image::ExifTool::UserDefined::xxx',
                 # (see the definition of this table below)
             },
         },
+        # add more user-defined XMP namespaces here...
     },
     # new PNG tags are added to the PNG::TextualData table:
     'Image::ExifTool::PNG::TextualData' => {
@@ -96,7 +131,7 @@
     'Image::ExifTool::MIE::Meta' => {
         NewMieTag1 => {
             Writable => 'rational64u',
-            Units => [ qw(cm in) ],
+            Units => [ 'cm', 'in' ],
         },
         Test => {
             SubDirectory => {
@@ -107,11 +142,14 @@
     },
     # Composite tags are added to the Composite table:
     'Image::ExifTool::Composite' => {
-        # Composite tags are unique: The Require/Desire elements list
+        # Composite tags are unique:  The Require/Desire elements specify
         # tags that must/may exist, and the keys of these hashes are used
         # as indices in the @val array of the ValueConv expression to
-        # derive the composite tag value.  (See the Composite table in
-        # Image::ExifTool::Exif for more examples.)
+        # derive the composite tag value.  All Require'd tags must exist
+        # for the Composite tag to be evaluated.  If no Require'd tags are
+        # specified, then at least one of the Desire'd tags must exist.
+        # See the Composite table in Image::ExifTool::Exif for more
+        # examples, and lib/Image/ExifTool/README for all of the details.
         BaseName => {
             Require => {
                 0 => 'FileName',
@@ -119,35 +157,65 @@
             # remove the extension from FileName
             ValueConv => '$val[0] =~ /(.*)\./ ? $1 : $val[0]',
         },
-        # the following examples demonstrate simplifications which may be
+        # the next few examples demonstrate simplifications which may be
         # used if only one tag is Require'd or Desire'd:
-        # 1) the Require/Desire lookup may be replaced with a simple tag name
+        # 1) the Require lookup may be replaced with a simple tag name
         # 2) "$val" may be used to represent "$val[0]" in the expression
-        Extension => {
+        FileExtension => {
             Require => 'FileName',
             ValueConv => '$val=~/\.([^.]*)$/; $1',
         },
         # override CircleOfConfusion tag to use D/1750 instead of D/1440
         CircleOfConfusion => {
             Require => 'ScaleFactor35efl',
+            Groups => { 2 => 'Camera' },
             ValueConv => 'sqrt(24*24+36*36) / ($val * 1750)',
+            # an optional PrintConv may be used to format the value
             PrintConv => 'sprintf("%.3f mm",$val)',
         },
-        # define a tag to customize my lens names
-        MyLens => {
-            Description => 'Lens Type',
-            Desire => {
-                0 => 'LensID',
-                1 => 'LensType',
-                2 => 'Lens',
+        # generate a description for this file type
+        FileTypeDescription => {
+            Require => 'FileType',
+            ValueConv => 'GetFileType($val,1) || $val',
+        },
+        # calculate physical image size based on resolution
+        PhysicalImageSize => {
+            Require => {
+                0 => 'ImageWidth',
+                1 => 'ImageHeight',
+                2 => 'XResolution',
+                3 => 'YResolution',
+                4 => 'ResolutionUnit',
             },
-            ValueConv => q{
-                foreach (@prt) {
-                    next if not defined $_ or /Unknown/;
-                    return 'SIGMA 10-20mm F4-5.6 EX DC' if /various SIGMA/;
-                    return $_;
+            ValueConv => '$val[0]/$val[2] . " " . $val[1]/$val[3]',
+            # (the @prt array contains print-formatted values)
+            PrintConv => 'sprintf("%.1fx%.1f $prt[4]", split(" ",$val))',
+        },
+        # [advanced] select largest JPEG preview image
+        BigImage => {
+            Desire => {
+                0 => 'JpgFromRaw',
+                1 => 'PreviewImage',
+                2 => 'OtherImage',
+                # (DNG and A100 ARW may be have 2 PreviewImage's)
+                3 => 'PreviewImage (1)',
+            },
+            # ValueConv may also be a code reference
+            # Inputs: 0) reference to list of values, 1) ExifTool object
+            ValueConv => sub {
+                my $val = shift;
+                my ($image, $bigImage, $len, $bigLen);
+                foreach $image (@$val) {
+                    next unless ref $image eq 'SCALAR';
+                    # check for JPEG image (or "Binary data" if -b not used)
+                    next unless $$image =~ /^(\xff\xd8\xff|Binary data (\d+))/;
+                    $len = $2 || length $$image; # get image length
+                    # save largest image
+                    next if defined $bigLen and $bigLen >= $len;
+                    $bigLen = $len;
+                    $bigImage = $image;
                 }
-                return undef;
+                return $bigImage;
             },
         },
     },
@@ -163,33 +231,44 @@
     NAMESPACE     => { 'xxx' => 'http://ns.myname.com/xxx/1.0/' },
     WRITABLE      => 'string',
     # replace "NewXMPxxxTag1" with your own tag name (ie. "MyTag")
-    NewXMPxxxTag1 => { },
+    NewXMPxxxTag1 => { Writable => 'lang-alt' },
     NewXMPxxxTag2 => { Groups => { 2 => 'Author' } },
     NewXMPxxxTag3 => { List => 'Bag' },
-    # XMP structures are defined as SubDirectory's
+    # example structured XMP tag
     NewXMPxxxStruct => {
-        SubDirectory => { },
-        Struct => 'MyStruct', # arbitrary name identifies entry in xmpStruct
-        List => 'Seq',        # structures may also be elements of a list
+        # the "Struct" entry defines the structure fields
+        Struct => {
+            # optional namespace prefix and URI for structure fields
+            # (required only if different than NAMESPACE above)
+            NAMESPACE => { 'test' => 'http://x.y.z/test/' },
+            # optional structure name (used for warning messages only)
+            STRUCT_NAME => 'MyStruct',
+            # optional rdf:type property for the structure
+            TYPE => 'http://x.y.z/test/xystruct',
+            # structure field definitions (very similar to tag definitions)
+            X => { Writable => 'integer' },
+            Y => { Writable => 'integer' },
+            # a nested structure...
+            Things => {
+                List => 'Bag',
+                Struct => {
+                    NAMESPACE => { thing => 'http://x.y.z/thing/' },
+                    What  => { },
+                    Where => { },
+                },
+            },
+        },
+        List => 'Seq', # structures may also be elements of a list
     },
-    # structure elements must be defined as separate tags.  The tag ID's
-    # are the concatination of the structure tag ID with the ID of each
-    # structure element in turn.  The list flag should be set if the
-    # parent structure is contained in a list.
-    NewXMPxxxStructX => { List => 1 },
-    NewXMPxxxStructY => { List => 1 },
-);
-
-# User-defined XMP structures are added to the xmpStruct lookup
-%Image::ExifTool::UserDefined::xmpStruct = (
-    # A structure with 2 elements: X and Y
-    MyStruct => {
-        NAMESPACE => { 'test' => 'http://x.y.z/test/' },
-        # TYPE is optional -- it adds an rdf:type element to the structure
-        TYPE => 'http://x.y.z/test/xystruct',
-        X => { },
-        Y => { },
-    },
+    # Each field in the structure has an automatically-generated
+    # corresponding flattened tag with an ID that is the concatenation
+    # of the original structure tag ID and the field name (after
+    # capitalizing the first letter of the field name if necessary).
+    # The Name and/or Description of these flattened tags may be changed
+    # if desired, but all other tag properties are taken from the
+    # structure field definition.  When this is done, the "Flat" flag
+    # must also be set in the tag definition.  For example:
+    NewXMPxxxStructX => { Name => 'SomeOtherName', Flat => 1 },
 );
 
 # Adding a new MIE group requires a few extra definitions
@@ -199,6 +278,21 @@ use Image::ExifTool::MIE;
     GROUPS      => { 0 => 'MIE', 1 => 'MIE-Test', 2 => 'Document' },
     WRITE_GROUP => 'MIE-Test',
     NewMieTag2  => { },     # new user-defined tag in MIE-Test group
+);
+
+# A special 'Lenses' list can be defined to give priority to specific lenses
+# in the logic to determine a lens model for the Composite:LensID tag
+@Image::ExifTool::UserDefined::Lenses = (
+    'Sigma AF 10-20mm F4-5.6 EX DC',
+    'Tokina AF193-2 19-35mm f/3.5-4.5',
+);
+
+# Specify default ExifTool option values
+# (see the Options function documentation for available options)
+%Image::ExifTool::UserDefined::Options = (
+    CoordFormat => '%.6f',  # change default GPS coordinate format
+    Duplicates => 1,        # make -a default for the exiftool app
+    GeoMaxHDOP => 4,        # ignore GPS fixes with HDOP > 4
 );
 
 #------------------------------------------------------------------------------

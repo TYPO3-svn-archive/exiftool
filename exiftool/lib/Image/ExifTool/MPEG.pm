@@ -7,6 +7,9 @@
 #
 # References:   1) http://www.mp3-tech.org/
 #               2) http://www.getid3.org/
+#               3) http://dvd.sourceforge.net/dvdinfo/dvdmpeg.html
+#               4) http://ffmpeg.org/
+#               5) http://sourceforge.net/projects/mediainfo/
 #------------------------------------------------------------------------------
 
 package Image::ExifTool::MPEG;
@@ -15,7 +18,7 @@ use strict;
 use vars qw($VERSION);
 use Image::ExifTool qw(:DataAccess :Utils);
 
-$VERSION = '1.06';
+$VERSION = '1.14';
 
 %Image::ExifTool::MPEG::Audio = (
     GROUPS => { 2 => 'Audio' },
@@ -43,7 +46,8 @@ $VERSION = '1.06';
             Name => 'AudioBitrate',
             Condition => '$self->{MPEG_Vers} == 3 and $self->{MPEG_Layer} == 3',
             Notes => 'version 1, layer 1',
-            PrintConv => {
+            PrintConvColumns => 3,
+            ValueConv => {
                 0 => 'free',
                 1 => 32000,
                 2 => 64000,
@@ -60,12 +64,14 @@ $VERSION = '1.06';
                 13 => 416000,
                 14 => 448000,
             },
+            PrintConv => 'ConvertBitrate($val)',
         },
         {
             Name => 'AudioBitrate',
             Condition => '$self->{MPEG_Vers} == 3 and $self->{MPEG_Layer} == 2',
             Notes => 'version 1, layer 2',
-            PrintConv => {
+            PrintConvColumns => 3,
+            ValueConv => {
                 0 => 'free',
                 1 => 32000,
                 2 => 48000,
@@ -82,12 +88,14 @@ $VERSION = '1.06';
                 13 => 320000,
                 14 => 384000,
             },
+            PrintConv => 'ConvertBitrate($val)',
         },
         {
             Name => 'AudioBitrate',
             Condition => '$self->{MPEG_Vers} == 3 and $self->{MPEG_Layer} == 1',
             Notes => 'version 1, layer 3',
-            PrintConv => {
+            PrintConvColumns => 3,
+            ValueConv => {
                 0 => 'free',
                 1 => 32000,
                 2 => 40000,
@@ -104,12 +112,14 @@ $VERSION = '1.06';
                 13 => 256000,
                 14 => 320000,
             },
+            PrintConv => 'ConvertBitrate($val)',
         },
         {
             Name => 'AudioBitrate',
             Condition => '$self->{MPEG_Vers} != 3 and $self->{MPEG_Layer} == 3',
             Notes => 'version 2 or 2.5, layer 1',
-            PrintConv => {
+            PrintConvColumns => 3,
+            ValueConv => {
                 0 => 'free',
                 1 => 32000,
                 2 => 48000,
@@ -126,12 +136,14 @@ $VERSION = '1.06';
                 13 => 224000,
                 14 => 256000,
             },
+            PrintConv => 'ConvertBitrate($val)',
         },
         {
             Name => 'AudioBitrate',
             Condition => '$self->{MPEG_Vers} != 3 and $self->{MPEG_Layer}',
             Notes => 'version 2 or 2.5, layer 2 or 3',
-            PrintConv => {
+            PrintConvColumns => 3,
+            ValueConv => {
                 0 => 'free',
                 1 => 8000,
                 2 => 16000,
@@ -148,6 +160,7 @@ $VERSION = '1.06';
                 13 => 144000,
                 14 => 160000,
             },
+            PrintConv => 'ConvertBitrate($val)',
         },
     ],
     'Bit20-21' => [
@@ -298,6 +311,7 @@ $VERSION = '1.06';
     'Bit32-49' => {
         Name => 'VideoBitrate',
         ValueConv => '$val eq 0x3ffff ? "Variable" : $val * 400',
+        PrintConv => 'ConvertBitrate($val)',
     },
     # these tags not very interesting
     #'Bit50'    => 'MarkerBit',
@@ -306,13 +320,66 @@ $VERSION = '1.06';
     #'Bit62'    => 'IntraQuantMatrixFlag',
 );
 
-%Image::ExifTool::MPEG::VBR = (
+%Image::ExifTool::MPEG::Xing = (
     GROUPS => { 2 => 'Audio' },
     VARS => { NO_ID => 1 },
-    NOTES => 'These tags are extracted for variable bitrate audio.',
+    NOTES => 'These tags are extracted from the Xing/Info frame.',
     1 => { Name => 'VBRFrames' },
     2 => { Name => 'VBRBytes' },
     3 => { Name => 'VBRScale' },
+    4 => { Name => 'Encoder' },
+    5 => { Name => 'LameVBRQuality' },
+    6 => { Name => 'LameQuality' },
+    7 => { # (for documentation only)
+        Name => 'LameHeader',
+        SubDirectory => { TagTable => 'Image::ExifTool::MPEG::Lame' },
+    },
+);
+
+# Lame header tags (ref 5)
+%Image::ExifTool::MPEG::Lame = (
+    PROCESS_PROC => \&Image::ExifTool::ProcessBinaryData,
+    GROUPS => { 2 => 'Audio' },
+    NOTES => 'Tags extracted from Lame 3.90 or later header.',
+    9 => {
+        Name => 'LameMethod',
+        Mask => 0x0f,
+        PrintConv => {
+            1 => 'CBR',
+            2 => 'ABR',
+            3 => 'VBR (old/rh)',
+            4 => 'VBR (new/mtrh)',
+            5 => 'VBR (old/rh)',
+            6 => 'VBR',
+            8 => 'CBR (2-pass)',
+            9 => 'ABR (2-pass)',
+        },
+    },
+    10 => {
+        Name => 'LameLowPassFilter',
+        ValueConv => '$val * 100',
+        PrintConv => '($val / 1000) . " kHz"',
+    },
+    # 19 - EncodingFlags
+    20 => {
+        Name => 'LameBitrate',
+        ValueConv => '$val * 1000',
+        PrintConv => 'ConvertBitrate($val)',
+    },
+    24 => {
+        Name => 'LameStereoMode',
+        Mask => 0x1c,
+        ValueConv => '$val >> 2',
+        PrintConv => {
+            0 => 'Mono',
+            1 => 'Stereo',
+            2 => 'Dual Channels',
+            3 => 'Joint Stereo',
+            4 => 'Forced Joint Stereo',
+            6 => 'Auto',
+            7 => 'Intensity Stereo',
+        },
+    },
 );
 
 # composite tags
@@ -330,6 +397,7 @@ $VERSION = '1.06';
             5 => 'MPEG:SampleRate',
             6 => 'MPEG:MPEGAudioVersion',
         },
+        Priority => -1, # (don't want to replace any other Duration tag)
         ValueConv => q{
             if ($val[4] and defined $val[5] and defined $val[6]) {
                 # calculate from number of VBR audio frames
@@ -340,11 +408,27 @@ $VERSION = '1.06';
             # calculate duration as file size divided by total bitrate
             # (note: this is only approximate!)
             return undef unless $val[2] or $val[3];
-            return undef if $prt[2] and not $prt[2] =~ /^\d+$/;
+            return undef if $val[2] and not $val[2] =~ /^\d+$/;
             return undef if $val[3] and not $val[3] =~ /^\d+$/;
-            return (8 * ($val[0] - ($val[1]||0))) / (($prt[2]||0) + ($val[3]||0));
+            return (8 * ($val[0] - ($val[1]||0))) / (($val[2]||0) + ($val[3]||0));
         },
         PrintConv => 'ConvertDuration($val) . " (approx)"',
+    },
+    AudioBitrate => {
+        Groups => { 2 => 'Audio' },
+        Notes => 'calculated for variable-bitrate MPEG audio',
+        Require => {
+            0 => 'MPEG:MPEGAudioVersion',
+            1 => 'MPEG:SampleRate',
+            2 => 'MPEG:VBRBytes',
+            3 => 'MPEG:VBRFrames',
+        },
+        ValueConv => q{
+            return undef unless $val[3];
+            my $mfs = $prt[1] / ($val[0] == 3 ? 144 : 72);
+            return $mfs * $val[2] / $val[3];
+        },
+        PrintConv => 'ConvertBitrate($val)',
     },
 );
 
@@ -376,11 +460,13 @@ sub ProcessFrameHeader($$@)
 #------------------------------------------------------------------------------
 # Read MPEG audio frame header
 # Inputs: 0) ExifTool object reference, 1) Reference to audio data
+#         2) flag set if we are trying to recognized MP3 file only
 # Returns: 1 on success, 0 if no audio header was found
-sub ProcessMPEGAudio($$)
+sub ParseMPEGAudio($$;$)
 {
-    my ($exifTool, $buffPt) = @_;
+    my ($exifTool, $buffPt, $mp3) = @_;
     my ($word, $pos);
+    my $ext = $$exifTool{FILE_EXT} || '';
 
     for (;;) {
         # find frame sync
@@ -393,17 +479,22 @@ sub ProcessMPEGAudio($$)
         # validate header as much as possible
         if (($word & 0x180000) == 0x080000 or   # 01 is a reserved version ID
             ($word & 0x060000) == 0x000000 or   # 00 is a reserved layer description
+            ($word & 0x00f000) == 0x000000 or   # 0000 is the "free" bitrate index
             ($word & 0x00f000) == 0x00f000 or   # 1111 is a bad bitrate index
-            ($word & 0x000600) == 0x000600 or   # 11 is a reserved sampling frequency
-            ($word & 0x000003) == 0x000002)     # 10 is a reserved emphasis
+            ($word & 0x000c00) == 0x000c00 or   # 11 is a reserved sampling frequency
+            ($word & 0x000003) == 0x000002 or   # 10 is a reserved emphasis
+            (($mp3 and ($word & 0x060000) != 0x020000))) # must be layer 3 for MP3
         {
-            return 0;   # invalid frame header
+            # give up easily unless this really should be an MP3 file
+            return 0 unless $ext eq 'MP3';
+            pos($$buffPt) = pos($$buffPt) - 1;
+            next;
         }
         $pos = pos($$buffPt);
         last;
     }
     # set file type if not done already
-    $exifTool->SetFileType() unless $exifTool->{VALUE}->{FileType};
+    $exifTool->SetFileType();
 
     my $tagTablePtr = GetTagTable('Image::ExifTool::MPEG::Audio');
     ProcessFrameHeader($exifTool, $tagTablePtr, $word);
@@ -416,17 +507,19 @@ sub ProcessMPEGAudio($$)
         last if $pos + 8 > $len;
         my $buff = substr($$buffPt, $pos, 8);
         last unless $buff =~ /^(Xing|Info)/;
-        my $vbrTable = GetTagTable('Image::ExifTool::MPEG::VBR');
+        my $xingTable = GetTagTable('Image::ExifTool::MPEG::Xing');
+        my $vbrScale;
         my $flags = unpack('x4N', $buff);
+        my $isVBR = ($buff !~ /^Info/);     # Info frame is not VBR (ref 5)
         $pos += 8;
         if ($flags & 0x01) {    # VBRFrames
             last if $pos + 4 > $len;
-            $exifTool->HandleTag($vbrTable, 1, unpack("x${pos}N", $$buffPt));
+            $exifTool->HandleTag($xingTable, 1, unpack("x${pos}N", $$buffPt)) if $isVBR;
             $pos += 4;
         }
         if ($flags & 0x02) {    # VBRBytes
             last if $pos + 4 > $len;
-            $exifTool->HandleTag($vbrTable, 2, unpack("x${pos}N", $$buffPt));
+            $exifTool->HandleTag($xingTable, 2, unpack("x${pos}N", $$buffPt)) if $isVBR;
             $pos += 4;
         }
         if ($flags & 0x04) {    # VBR_TOC
@@ -436,11 +529,54 @@ sub ProcessMPEGAudio($$)
         }
         if ($flags & 0x08) {    # VBRScale
             last if $pos + 4 > $len;
-            $exifTool->HandleTag($vbrTable, 3, unpack("x${pos}N", $$buffPt));
+            $vbrScale = unpack("x${pos}N", $$buffPt);
+            $exifTool->HandleTag($xingTable, 3, $vbrScale) if $isVBR;
             $pos += 4;
         }
-        last;
-	}
+        # process Lame header (ref 5)
+        if ($flags & 0x10) {    # Lame
+            last if $pos + 348 > $len;
+        } elsif ($pos + 4 <= $len) {
+            my $lib = substr($$buffPt, $pos, 4);
+            unless ($lib eq 'LAME' or $lib eq 'GOGO') {
+                # attempt to identify other encoders
+                my $n;
+                if (index($$buffPt, 'RCA mp3PRO Encoder') >= 0) {
+                    $lib = 'RCA mp3PRO';
+                } elsif (($n = index($$buffPt, 'THOMSON mp3PRO Encoder')) >= 0) {
+                    $lib = 'Thomson mp3PRO';
+                    $n += 22;
+                    $lib .= ' ' . substr($$buffPt, $n, 6) if length($$buffPt) - $n >= 6;
+                } elsif (index($$buffPt, 'MPGE') >= 0) {
+                    $lib = 'Gogo (<3.0)';
+                } else {
+                    last;
+                }
+                $exifTool->HandleTag($xingTable, 4, $lib);
+                last;
+            }
+        }
+        my $lameLen = $len - $pos;
+        last if $lameLen < 9;
+        my $enc = substr($$buffPt, $pos, 9);
+        if ($enc ge 'LAME3.90') {
+            $exifTool->HandleTag($xingTable, 4, $enc);
+            if ($vbrScale <= 100) {
+                $exifTool->HandleTag($xingTable, 5, int((100 - $vbrScale) / 10));
+                $exifTool->HandleTag($xingTable, 6, (100 - $vbrScale) % 10);
+            }
+            my %dirInfo = (
+                DataPt   => $buffPt,
+                DirStart => $pos,
+                DirLen   => length($$buffPt) - $pos,
+            );
+            my $subTablePtr = GetTagTable('Image::ExifTool::MPEG::Lame');
+            $exifTool->ProcessDirectory(\%dirInfo, $subTablePtr);
+        } else {
+            $exifTool->HandleTag($xingTable, 4, substr($$buffPt, $pos, 20));
+        }
+        last;   # (didn't want to loop anyway)
+    }
 
     return 1;
 }
@@ -475,18 +611,40 @@ sub ProcessMPEGVideo($$)
 # Read MPEG audio and video frame headers
 # Inputs: 0) ExifTool object reference, 1) Reference to audio/video data
 # Returns: 1 on success, 0 if no video header was found
-sub ProcessMPEGAudioVideo($$)
+# To Do: Properly parse MPEG streams:
+#   0xb7 - sequence end
+#   0xb9 - end code
+#   0xba - pack start code
+#   0xbb - system header
+#   0xbc - program map <-- should parse this
+#   0xbd - private stream 1 --> for VOB, this contains sub-streams:
+#           0x20-0x3f - pictures
+#           0x80-0x87 - audio (AC3,DTS,SDDS)
+#           0xa0-0xa7 - audio (LPCM)
+#   0xbe - padding
+#   0xbf - private stream 2
+#   0xc0-0xdf - audio stream
+#   0xe0-0xef - video stream
+sub ParseMPEGAudioVideo($$)
 {
     my ($exifTool, $buffPt) = @_;
-    my %found;
+    my (%found, $didHdr);
     my $rtnVal = 0;
-    my %proc = ( audio => \&ProcessMPEGAudio, video => \&ProcessMPEGVideo );
+    my %proc = ( audio => \&ParseMPEGAudio, video => \&ProcessMPEGVideo );
 
     delete $exifTool->{AudioBitrate};
     delete $exifTool->{VideoBitrate};
 
     while ($$buffPt =~ /\0\0\x01(\xb3|\xc0)/g) {
         my $type = $1 eq "\xb3" ? 'video' : 'audio';
+        unless ($didHdr) {
+            # make sure we didn't miss an audio frame sync before this (ie. MP3 file)
+            # (the last byte of the 4-byte MP3 audio frame header word may be zero,
+            # but the 2nd last must be non-zero, so we need only check to pos-3)
+            my $buff = substr($$buffPt, 0, pos($$buffPt) - 3);
+            $found{audio} = 1 if ParseMPEGAudio($exifTool, \$buff);
+            $didHdr = 1;
+        }
         next if $found{$type};
         my $len = length($$buffPt) - pos($$buffPt);
         last if $len < 4;
@@ -504,7 +662,7 @@ sub ProcessMPEGAudioVideo($$)
 }
 
 #------------------------------------------------------------------------------
-# Read information frame an MPEG file
+# Read information from an MPEG file
 # Inputs: 0) ExifTool object reference, 1) Directory information reference
 # Returns: 1 on success, 0 if this wasn't a valid MPEG file
 sub ProcessMPEG($$)
@@ -520,7 +678,7 @@ sub ProcessMPEG($$)
     $raf->Seek(0,0);
     $raf->Read($buff, 65536*4) or return 0;
 
-    return ProcessMPEGAudioVideo($exifTool, \$buff);
+    return ParseMPEGAudioVideo($exifTool, \$buff);
 }
 
 1;  # end
@@ -547,7 +705,7 @@ based on unofficial sources which may be incomplete, inaccurate or outdated.
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
@@ -559,6 +717,12 @@ under the same terms as Perl itself.
 =item L<http://www.mp3-tech.org/>
 
 =item L<http://www.getid3.org/>
+
+=item L<http://dvd.sourceforge.net/dvdinfo/dvdmpeg.html>
+
+=item L<http://ffmpeg.org/>
+
+=item L<http://sourceforge.net/projects/mediainfo/>
 
 =back
 

@@ -14,7 +14,7 @@ use strict;
 use vars qw($VERSION);
 use Image::ExifTool qw(:DataAccess :Utils);
 
-$VERSION = '1.00';
+$VERSION = '1.01';
 
 # currently support this version Rawzor images
 my $implementedRawzorVersion = 199; # (up to version 1.99)
@@ -22,6 +22,7 @@ my $implementedRawzorVersion = 199; # (up to version 1.99)
 # Rawzor-specific tags
 %Image::ExifTool::Rawzor::Main = (
     GROUPS => { 2 => 'Other' },
+    VARS => { NO_ID => 1 },
     NOTES => q{
         Rawzor files store compressed images of other formats. As well as the
         information listed below, exiftool uncompresses and extracts the meta
@@ -131,7 +132,7 @@ sub ProcessRWZ($$)
         undef $buf2;
 
         # extract original information by calling ExtractInfo recursively
-        $exifTool->ExtractInfo(\$buff, { ReEntry => 1});
+        $exifTool->ExtractInfo(\$buff, { ReEntry => 1 });
         undef $buff;
     }
     # set OriginalFileType from FileType of original file
@@ -167,7 +168,7 @@ information from Rawzor compressed images.
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

@@ -13,13 +13,14 @@ package Image::ExifTool::IPTC;
 
 use strict;
 use vars qw($VERSION $AUTOLOAD %iptcCharset);
+use Image::ExifTool qw(:DataAccess :Utils);
 
-$VERSION = '1.26';
+$VERSION = '1.47';
 
 %iptcCharset = (
     "\x1b%G"  => 'UTF8',
    # don't translate these (at least until we handle ISO 2022 shift codes)
-   # because the sets are only designated and not invoked 
+   # because the sets are only designated and not invoked
    # "\x1b,A"  => 'Latin',  # G0 = ISO 8859-1 (similar to Latin1, but codes 0x80-0x9f are missing)
    # "\x1b-A"  => 'Latin',  # G1     "
    # "\x1b.A"  => 'Latin',  # G2
@@ -31,6 +32,17 @@ sub WriteIPTC($$$);
 sub CheckIPTC($$$);
 sub PrintCodedCharset($);
 sub PrintInvCodedCharset($);
+
+# standard IPTC locations
+# (MWG specifies locations only for JPEG, TIFF and PSD -- the rest are ExifTool-defined)
+my %isStandardIPTC = (
+    'JPEG-APP13-Photoshop-IPTC' => 1,
+    'TIFF-IFD0-IPTC'            => 1,
+    'PSD-IPTC'                  => 1,
+    'MIE-IPTC'                  => 1,
+    'EPS-Photoshop-IPTC'        => 1,
+    'PS-Photoshop-IPTC'         => 1,
+);
 
 my %fileFormat = (
     0 => 'No ObjectData',
@@ -104,8 +116,15 @@ my %fileFormat = (
     },
     9 => {
         Name => 'IPTCPostObjectData',
+        Groups => { 1 => 'IPTC#' }, #(just so this shows up in group list)
         SubDirectory => {
             TagTable => 'Image::ExifTool::IPTC::PostObjectData',
+        },
+    },
+    240 => {
+        Name => 'IPTCFotoStation',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::IPTC::FotoStation',
         },
     },
 );
@@ -119,6 +138,7 @@ my %fileFormat = (
     0 => {
         Name => 'EnvelopeRecordVersion',
         Format => 'int16u',
+        Mandatory => 1,
     },
     5 => {
         Name => 'Destination',
@@ -153,6 +173,18 @@ my %fileFormat = (
     60 => {
         Name => 'EnvelopePriority',
         Format => 'digits[1]',
+        PrintConv => {
+            0 => '0 (reserved)',
+            1 => '1 (most urgent)',
+            2 => 2,
+            3 => 3,
+            4 => 4,
+            5 => '5 (normal urgency)',
+            6 => 6,
+            7 => 7,
+            8 => '8 (least urgent)',
+            9 => '9 (user-defined priority)',
+        },
     },
     70 => {
         Name => 'DateSent',
@@ -161,6 +193,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     80 => {
         Name => 'TimeSent',
@@ -169,6 +202,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifTime($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcTime($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     90 => {
         Name => 'CodedCharacterSet',
@@ -177,8 +211,13 @@ my %fileFormat = (
             UTF-8 character coding is "ESC % G", but this is displayed as "UTF8" for
             convenience.  Either string may be used when writing.  The value of this tag
             affects the decoding of string values in the Application and NewsPhoto
-            records
+            records.  This tag is marked as "unsafe" to prevent it from being copied by
+            default in a group operation because existing tags in the destination image
+            may use a different encoding.  When creating a new IPTC record from scratch,
+            it is suggested that this be set to "UTF8" if special characters are a
+            possibility
         },
+        Protected => 1,
         Format => 'string[0,32]',
         # convert ISO 2022 escape sequences to a more readable format
         PrintConv => \&PrintCodedCharset,
@@ -207,6 +246,7 @@ my %fileFormat = (
     0 => {
         Name => 'ApplicationRecordVersion',
         Format => 'int16u',
+        Mandatory => 1,
     },
     3 => {
         Name => 'ObjectTypeReference',
@@ -228,10 +268,25 @@ my %fileFormat = (
     8 => {
         Name => 'EditorialUpdate',
         Format => 'digits[2]',
+        PrintConv => {
+            '01' => 'Additional language',
+        },
     },
     10 => {
         Name => 'Urgency',
         Format => 'digits[1]',
+        PrintConv => {
+            0 => '0 (reserved)',
+            1 => '1 (most urgent)',
+            2 => 2,
+            3 => 3,
+            4 => 4,
+            5 => '5 (normal urgency)',
+            6 => 6,
+            7 => 7,
+            8 => '8 (least urgent)',
+            9 => '9 (user-defined priority)',
+        },
     },
     12 => {
         Name => 'SubjectReference',
@@ -275,6 +330,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     35 => {
         Name => 'ReleaseTime',
@@ -283,6 +339,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifTime($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcTime($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     37 => {
         Name => 'ExpirationDate',
@@ -291,6 +348,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     38 => {
         Name => 'ExpirationTime',
@@ -299,6 +357,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifTime($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcTime($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     40 => {
         Name => 'SpecialInstructions',
@@ -311,7 +370,7 @@ my %fileFormat = (
             '' => '',
             '01' => 'Object Kill',
             '02' => 'Object Replace',
-            '03' => 'Ojbect Append',
+            '03' => 'Object Append',
             '04' => 'Object Reference',
         },
     },
@@ -328,6 +387,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     50 => {
         Name => 'ReferenceNumber',
@@ -341,6 +401,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     60 => {
         Name => 'TimeCreated',
@@ -349,6 +410,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifTime($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcTime($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     62 => {
         Name => 'DigitalCreationDate',
@@ -357,6 +419,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifDate($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcDate($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     63 => {
         Name => 'DigitalCreationTime',
@@ -365,6 +428,7 @@ my %fileFormat = (
         Shift => 'Time',
         ValueConv => 'Image::ExifTool::Exif::ExifTime($val)',
         ValueConvInv => 'Image::ExifTool::IPTC::IptcTime($val)',
+        PrintConvInv => 'Image::ExifTool::IPTC::InverseDateOrTime($val)',
     },
     65 => {
         Name => 'OriginatingProgram',
@@ -453,14 +517,14 @@ my %fileFormat = (
         Name => 'Caption-Abstract',
         Format => 'string[0,2000]',
     },
-    121 => { # (format not certain)
+    121 => {
         Name => 'LocalCaption',
-        Format => 'string[0,256]',
+        Format => 'string[0,256]', # (guess)
         Notes => q{
             I haven't found a reference for the format of tags 121, 184-188 and
             225-232, so I have just make them writable as strings with
             reasonable length.  Beware that if this is wrong, other utilities
-            won't be able to read these tags as written by ExifTool.
+            won't be able to read these tags as written by ExifTool
         },
     },
     122 => {
@@ -471,7 +535,7 @@ my %fileFormat = (
     },
     125 => {
         Name => 'RasterizedCaption',
-        Format => 'string[7360]',
+        Format => 'undef[7360]',
         Binary => 1,
     },
     130 => {
@@ -532,25 +596,25 @@ my %fileFormat = (
         Name => 'AudioOutcue',
         Format => 'string[0,64]',
     },
-    184 => { # (format not certain)
+    184 => {
         Name => 'JobID',
-        Format => 'string[0,64]',
+        Format => 'string[0,64]', # (guess)
     },
-    185 => { # (format not certain)
+    185 => {
         Name => 'MasterDocumentID',
-        Format => 'string[0,256]',
+        Format => 'string[0,256]', # (guess)
     },
-    186 => { # (format not certain)
+    186 => {
         Name => 'ShortDocumentID',
-        Format => 'string[0,64]',
+        Format => 'string[0,64]', # (guess)
     },
-    187 => { # (format not certain)
+    187 => {
         Name => 'UniqueDocumentID',
-        Format => 'string[0,128]',
+        Format => 'string[0,128]', # (guess)
     },
-    188 => { # (format not certain)
+    188 => {
         Name => 'OwnerID',
-        Format => 'string[0,128]',
+        Format => 'string[0,128]', # (guess)
     },
     200 => {
         Name => 'ObjectPreviewFileFormat',
@@ -566,7 +630,7 @@ my %fileFormat = (
     202 => {
         Name => 'ObjectPreviewData',
         Groups => { 2 => 'Image' },
-        Format => 'string[0,256000]',
+        Format => 'undef[0,256000]',
         Binary => 1,
     },
     221 => {
@@ -585,25 +649,31 @@ my %fileFormat = (
             return $val;
         },
     },
-    225 => { # (format not certain)
+    225 => {
         Name => 'ClassifyState',
-        Format => 'string[0,64]',
+        Format => 'string[0,64]', # (guess)
     },
-    228 => { # (format not certain)
+    228 => {
         Name => 'SimilarityIndex',
-        Format => 'string[0,32]',
+        Format => 'string[0,32]', # (guess)
     },
-    230 => { # (format not certain)
+    230 => {
         Name => 'DocumentNotes',
-        Format => 'string[0,1024]',
+        Format => 'string[0,1024]', # (guess)
     },
-    231 => { # (format not certain)
+    231 => {
         Name => 'DocumentHistory',
-        Format => 'string[0,256]',
+        Format => 'string[0,256]', # (guess)
     },
-    232 => { # (format not certain)
+    232 => {
         Name => 'ExifCameraInfo',
-        Format => 'string[0,4096]',
+        Format => 'string[0,4096]', # (guess)
+    },
+    255 => { #PH
+        Name => 'CatalogSets',
+        List => 1,
+        Format => 'string[0,256]', # (guess)
+        Notes => 'written by iView MediaPro',
     },
 );
 
@@ -616,6 +686,7 @@ my %fileFormat = (
     0 => {
         Name => 'NewsPhotoVersion',
         Format => 'int16u',
+        Mandatory => 1,
     },
     10 => {
         Name => 'IPTCPictureNumber',
@@ -841,6 +912,42 @@ my %fileFormat = (
     },
 );
 
+# Record 240 -- FotoStation proprietary data (ref PH)
+%Image::ExifTool::IPTC::FotoStation = (
+    GROUPS => { 2 => 'Other' },
+    WRITE_PROC => \&WriteIPTC,
+    CHECK_PROC => \&CheckIPTC,
+    WRITABLE => 1,
+);
+
+# IPTC Composite tags
+%Image::ExifTool::IPTC::Composite = (
+    GROUPS => { 2 => 'Image' },
+    DateTimeCreated => {
+        Description => 'Date/Time Created',
+        Groups => { 2 => 'Time' },
+        Require => {
+            0 => 'IPTC:DateCreated',
+            1 => 'IPTC:TimeCreated',
+        },
+        ValueConv => '"$val[0] $val[1]"',
+        PrintConv => '$self->ConvertDateTime($val)',
+    },
+    DigitalCreationDateTime => {
+        Description => 'Digital Creation Date/Time',
+        Groups => { 2 => 'Time' },
+        Require => {
+            0 => 'IPTC:DigitalCreationDate',
+            1 => 'IPTC:DigitalCreationTime',
+        },
+        ValueConv => '"$val[0] $val[1]"',
+        PrintConv => '$self->ConvertDateTime($val)',
+    },
+);
+
+# add our composite tags
+Image::ExifTool::AddCompositeTags('Image::ExifTool::IPTC');
+
 
 #------------------------------------------------------------------------------
 # AutoLoad our writer routines when necessary
@@ -862,55 +969,57 @@ sub PrintCodedCharset($)
     $val =~ s/^,? //;
     return $val;
 }
-        
+
 #------------------------------------------------------------------------------
 # Handle CodedCharacterSet
 # Inputs: 0) ExifTool ref, 1) CodedCharacterSet value
-# Returns: external character set if translation required (or 'bad' if unknown)
+# Returns: IPTC character set if translation required (or 'bad' if unknown)
 sub HandleCodedCharset($$)
 {
     my ($exifTool, $val) = @_;
-    my $xlat = $exifTool->Options('Charset');
-    if ($iptcCharset{$val}) {
-        # no need to translate if destination is the same
-        undef $xlat if $xlat eq $iptcCharset{$val};
-    } elsif ($val =~ /^\x1b\x25/) {
-        # some unknown character set involked
-        $xlat = 'bad';  # flag unsupported coding
-    } else {
-        # translate all other codes as Latin
-        undef $xlat if $xlat eq 'Latin';
+    my $xlat = $iptcCharset{$val};
+    unless ($xlat) {
+        if ($val =~ /^\x1b\x25/) {
+            # some unknown character set invoked
+            $xlat = 'bad';  # flag unsupported coding
+        } else {
+            $xlat = $exifTool->Options('CharsetIPTC');
+        }
     }
+    # no need to translate if Charset is the same
+    undef $xlat if $xlat eq $exifTool->Options('Charset');
     return $xlat;
 }
 
 #------------------------------------------------------------------------------
 # Encode or decode coded string
-# Inputs: 0) ExifTool ref, 1) value ptr, 2) destination charset ('Latin','UTF8' or 'bad')
+# Inputs: 0) ExifTool ref, 1) value ptr, 2) IPTC charset (or 'bad') ref
 #         3) flag set to decode (read) value from IPTC
 # Updates value on return
 sub TranslateCodedString($$$$)
 {
     my ($exifTool, $valPtr, $xlatPtr, $read) = @_;
-    my $escaped;
     if ($$xlatPtr eq 'bad') {
         $exifTool->Warn('Some IPTC characters not converted (unsupported CodedCharacterSet)');
         undef $$xlatPtr;
-    } elsif ($$xlatPtr eq 'Latin' xor $read) {
-        # don't yet support reading ISO 2022 shifted character sets
-        if (not $read or $$valPtr !~ /[\x14\x15\x1b]/) {
-            # convert from Latin to UTF-8
-            my $val = Image::ExifTool::Latin2Unicode($$valPtr,'n');
-            $$valPtr = Image::ExifTool::Unicode2UTF8($val,'n');
-        } elsif (not $$exifTool{WarnShift2022}) {
-            $exifTool->Warn('Some IPTC characters not converted (ISO 2022 shifting not supported)');
-            $$exifTool{WarnShift2022} = 1;
-        }
+    } elsif (not $read) {
+        $$valPtr = $exifTool->Decode($$valPtr, undef, undef, $$xlatPtr);
+    } elsif ($$valPtr !~ /[\x14\x15\x1b]/) {
+        $$valPtr = $exifTool->Decode($$valPtr, $$xlatPtr);
     } else {
-        # convert from UTF-8 to Latin
-        my $val = Image::ExifTool::UTF82Unicode($$valPtr,'n',$exifTool);
-        $$valPtr = Image::ExifTool::Unicode2Latin($val,'n',$exifTool);
+        # don't yet support reading ISO 2022 shifted character sets
+        $exifTool->WarnOnce('Some IPTC characters not converted (ISO 2022 shifting not supported)');
     }
+}
+
+#------------------------------------------------------------------------------
+# Is this IPTC in a standard location?
+# Inputs: 0) Current metadata path string
+# Returns: true if path is standard
+sub IsStandardIPTC($)
+{
+    my $path = shift;
+    return $isStandardIPTC{$path};
 }
 
 #------------------------------------------------------------------------------
@@ -929,16 +1038,38 @@ sub ProcessIPTC($$$)
     my $success = 0;
     my ($lastRec, $recordPtr, $recordName);
 
-    # begin by assuming IPTC is Latin (so no translation if Charset is Latin)
-    my $xlat = $exifTool->Options('Charset');
-    undef $xlat if $xlat eq 'Latin';
-    
     $verbose and $dirInfo and $exifTool->VerboseDir('IPTC', 0, $$dirInfo{DirLen});
+
     if ($tagTablePtr eq \%Image::ExifTool::IPTC::Main) {
+        # calculate MD5 if Digest::MD5 is available (for standard IPTC only)
+        my $path = $exifTool->MetadataPath();
+        if (IsStandardIPTC($path)) {
+            my $md5;
+            if (eval 'require Digest::MD5') {
+                if ($pos or $dirLen != length($$dataPt)) {
+                    $md5 = Digest::MD5::md5(substr $$dataPt, $pos, $dirLen);
+                } else {
+                    $md5 = Digest::MD5::md5($$dataPt);
+                }
+            } else {
+                # a zero digest indicates IPTC exists but we don't have Digest::MD5
+                $md5 = "\0" x 16;
+            }
+            $exifTool->FoundTag('CurrentIPTCDigest', $md5);
+        } elsif ($Image::ExifTool::MWG::strict and $$exifTool{FILE_TYPE} =~ /^(JPEG|TIFF|PSD)$/) {
+            # ignore non-standard IPTC while in strict MWG compatibility mode
+            $exifTool->Warn("Ignored non-standard IPTC at $path");
+            return 1;
+        }
+        # set family 1 group name if multiple IPTC directories
         my $dirCount = ($exifTool->{DIR_COUNT}->{IPTC} || 0) + 1;
         $exifTool->{DIR_COUNT}->{IPTC} = $dirCount;
         $exifTool->{SET_GROUP1} = '+' . $dirCount if $dirCount > 1;
     }
+    # begin by assuming default IPTC encoding
+    my $xlat = $exifTool->Options('CharsetIPTC');
+    undef $xlat if $xlat eq $exifTool->Options('Charset');
+
     # quick check for improperly byte-swapped IPTC
     if ($dirLen >= 4 and substr($$dataPt, $pos, 1) ne "\x1c" and
                          substr($$dataPt, $pos + 3, 1) eq "\x1c")
@@ -949,6 +1080,16 @@ sub ProcessIPTC($$$)
         $pos = 0;
         $dirEnd = $pos + $dirLen;
         # NOTE: MUST NOT access $dirInfo DataPt, DirStart or DataLen after this!
+    }
+    # extract IPTC as a block if specified
+    if ($exifTool->{REQ_TAG_LOOKUP}{iptc} or ($exifTool->{OPTIONS}{Binary} and
+        not $exifTool->{EXCL_TAG_LOOKUP}{iptc}))
+    {
+        if ($pos or $dirLen != length($$dataPt)) {
+            $exifTool->FoundTag('IPTC', substr($$dataPt, $pos, $dirLen));
+        } else {
+            $exifTool->FoundTag('IPTC', $$dataPt);
+        }
     }
     while ($pos + 5 <= $dirEnd) {
         my $buff = substr($$dataPt, $pos, 5);
@@ -963,11 +1104,31 @@ sub ProcessIPTC($$$)
             $exifTool->Warn(sprintf('Bad IPTC data tag (marker 0x%x)',$id));
             last;
         }
+        $pos += 5;      # step to after field header
+        # handle extended IPTC entry if necessary
+        if ($len & 0x8000) {
+            my $n = $len & 0x7fff; # get num bytes in length field
+            if ($pos + $n > $dirEnd or $n > 8) {
+                $exifTool->VPrint(0, "Invalid extended IPTC entry (dataset $rec:$tag, len $len)\n");
+                $success = 0;
+                last;
+            }
+            # determine length (a big-endian, variable sized int)
+            for ($len = 0; $n; ++$pos, --$n) {
+                $len = $len * 256 + ord(substr($$dataPt, $pos, 1));
+            }
+        }
+        if ($pos + $len > $dirEnd) {
+            $exifTool->VPrint(0, "Invalid IPTC entry (dataset $rec:$tag, len $len)\n");
+            $success = 0;
+            last;
+        }
         if (not defined $lastRec or $lastRec != $rec) {
             my $tableInfo = $tagTablePtr->{$rec};
             unless ($tableInfo) {
-                $exifTool->Warn("Unrecognized IPTC record $rec, subsequent records ignored");
-                last;   # stop now because we're probably reading garbage
+                $exifTool->WarnOnce("Unrecognized IPTC record $rec (ignored)");
+                $pos += $len;
+                next;   # ignore this entry
             }
             my $tableName = $tableInfo->{SubDirectory}->{TagTable};
             unless ($tableName) {
@@ -979,36 +1140,19 @@ sub ProcessIPTC($$$)
             $exifTool->VPrint(0,$$exifTool{INDENT},"-- $recordName record --\n");
             $lastRec = $rec;
         }
-        $pos += 5;      # step to after field header
-        # handle extended IPTC entry if necessary
-        if ($len & 0x8000) {
-            my $n = $len & 0x7fff; # get num bytes in length field
-            if ($pos + $n > $dirEnd or $n > 8) {
-                $exifTool->VPrint(0, "Invalid extended IPTC entry (tag $tag)\n");
-                $success = 0;
-                last;
-            }
-            # determine length (a big-endian, variable sized int)
-            for ($len = 0; $n; ++$pos, --$n) {
-                $len = $len * 256 + ord(substr($$dataPt, $pos, 1));
-            }
-        }
-        if ($pos + $len > $dirEnd) {
-            $exifTool->VPrint(0, "Invalid IPTC entry (tag $tag, len $len)\n");
-            $success = 0;
-            last;
-        }
         my $val = substr($$dataPt, $pos, $len);
 
         # add tagInfo for all unknown tags:
         unless ($$recordPtr{$tag}) {
             # - no Format so format is auto-detected
             # - no Name so name is generated automatically with decimal tag number
-            Image::ExifTool::AddTagToTable($recordPtr, $tag, { Unknown => 1 });
+            AddTagToTable($recordPtr, $tag, { Unknown => 1 });
         }
 
         my $tagInfo = $exifTool->GetTagInfo($recordPtr, $tag);
         my $format;
+        # (could use $$recordPtr{FORMAT} if no Format below, but don't do this to
+        #  be backward compatible with improperly written PhotoMechanic tags)
         $format = $$tagInfo{Format} if $tagInfo;
         # use logic to determine format if not specified
         unless ($format) {
@@ -1024,6 +1168,7 @@ sub ProcessIPTC($$$)
                     }
                 }
             } elsif ($format =~ /^string/) {
+                $val =~ s/\0+$//;   # some braindead softwares add null terminators
                 if ($rec == 1) {
                     # handle CodedCharacterSet tag
                     $xlat = HandleCodedCharset($exifTool, $val) if $tag == 90;
@@ -1032,7 +1177,9 @@ sub ProcessIPTC($$$)
                     # translate to specified character set
                     TranslateCodedString($exifTool, \$val, \$xlat, 1);
                 }
-            } elsif ($format !~ /^digits/) {
+            } elsif ($format =~ /^digits/) {
+                $val =~ s/\0+$//;
+            } elsif ($format !~ /^undef/) {
                 warn("Invalid IPTC format: $format");
             }
         }
@@ -1044,6 +1191,7 @@ sub ProcessIPTC($$$)
             Size    => $len,
             Start   => $pos,
             Extra   => ", $recordName record",
+            Format  => $format,
         );
         $exifTool->FoundTag($tagInfo, $val) if $tagInfo;
         $success = 1;
@@ -1075,7 +1223,7 @@ image files.
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

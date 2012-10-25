@@ -4,6 +4,7 @@
 # Description:  Read meta information of various executable file formats
 #
 # Revisions:    2008/08/28 - P. Harvey Created
+#               2011/07/12 - P. Harvey Added CHM (ok, not EXE, but it fits here)
 #
 # References:   1) http://www.openwatcom.org/ftp/devel/docs/pecoff.pdf
 #               2) http://support.microsoft.com/kb/65122
@@ -20,7 +21,7 @@ use strict;
 use vars qw($VERSION);
 use Image::ExifTool qw(:DataAccess :Utils);
 
-$VERSION = '1.00';
+$VERSION = '1.05';
 
 sub ProcessPEResources($$);
 sub ProcessPEVersion($$);
@@ -48,6 +49,122 @@ my %resourceType = (
     22 => 'Animated Icon',
     23 => 'HTML',
     24 => 'Manifest',
+);
+
+my %languageCode = (
+    '0000' => 'Neutral',
+    '007F' => 'Invariant',
+    '0400' => 'Process default',
+    '0401' => 'Arabic',
+    '0402' => 'Bulgarian',
+    '0403' => 'Catalan',
+    '0404' => 'Chinese (Traditional)',
+    '0405' => 'Czech',
+    '0406' => 'Danish',
+    '0407' => 'German',
+    '0408' => 'Greek',
+    '0409' => 'English (U.S.)',
+    '040A' => 'Spanish (Castilian)',
+    '040B' => 'Finnish',
+    '040C' => 'French',
+    '040D' => 'Hebrew',
+    '040E' => 'Hungarian',
+    '040F' => 'Icelandic',
+    '0410' => 'Italian',
+    '0411' => 'Japanese',
+    '0412' => 'Korean',
+    '0413' => 'Dutch',
+    '0414' => 'Norwegian (Bokml)',
+    '0415' => 'Polish',
+    '0416' => 'Portuguese (Brazilian)',
+    '0417' => 'Rhaeto-Romanic',
+    '0418' => 'Romanian',
+    '0419' => 'Russian',
+    '041A' => 'Croato-Serbian (Latin)',
+    '041B' => 'Slovak',
+    '041C' => 'Albanian',
+    '041D' => 'Swedish',
+    '041E' => 'Thai',
+    '041F' => 'Turkish',
+    '0420' => 'Urdu',
+    # 0421-0493 ref 6
+    '0421' => 'Indonesian',
+    '0422' => 'Ukrainian',
+    '0423' => 'Belarusian',
+    '0424' => 'Slovenian',
+    '0425' => 'Estonian',
+    '0426' => 'Latvian',
+    '0427' => 'Lithuanian',
+    '0428' => 'Maori',
+    '0429' => 'Farsi',
+    '042a' => 'Vietnamese',
+    '042b' => 'Armenian',
+    '042c' => 'Azeri',
+    '042d' => 'Basque',
+    '042e' => 'Sorbian',
+    '042f' => 'Macedonian',
+    '0430' => 'Sutu',
+    '0431' => 'Tsonga',
+    '0432' => 'Tswana',
+    '0433' => 'Venda',
+    '0434' => 'Xhosa',
+    '0435' => 'Zulu',
+    '0436' => 'Afrikaans',
+    '0437' => 'Georgian',
+    '0438' => 'Faeroese',
+    '0439' => 'Hindi',
+    '043a' => 'Maltese',
+    '043b' => 'Saami',
+    '043c' => 'Gaelic',
+    '043e' => 'Malay',
+    '043f' => 'Kazak',
+    '0440' => 'Kyrgyz',
+    '0441' => 'Swahili',
+    '0443' => 'Uzbek',
+    '0444' => 'Tatar',
+    '0445' => 'Bengali',
+    '0446' => 'Punjabi',
+    '0447' => 'Gujarati',
+    '0448' => 'Oriya',
+    '0449' => 'Tamil',
+    '044a' => 'Telugu',
+    '044b' => 'Kannada',
+    '044c' => 'Malayalam',
+    '044d' => 'Assamese',
+    '044e' => 'Marathi',
+    '044f' => 'Sanskrit',
+    '0450' => 'Mongolian',
+    '0456' => 'Galician',
+    '0457' => 'Konkani',
+    '0458' => 'Manipuri',
+    '0459' => 'Sindhi',
+    '045a' => 'Syriac',
+    '0460' => 'Kashmiri',
+    '0461' => 'Nepali',
+    '0465' => 'Divehi',
+    '047f' => 'Invariant',
+    '048f' => 'Esperanto',
+    '0490' => 'Walon',
+    '0491' => 'Cornish',
+    '0492' => 'Welsh',
+    '0493' => 'Breton',
+    '0800' => 'Neutral 2',
+    '0804' => 'Chinese (Simplified)',
+    '0807' => 'German (Swiss)',
+    '0809' => 'English (British)',
+    '080A' => 'Spanish (Mexican)',
+    '080C' => 'French (Belgian)',
+    '0810' => 'Italian (Swiss)',
+    '0813' => 'Dutch (Belgian)',
+    '0814' => 'Norwegian (Nynorsk)',
+    '0816' => 'Portuguese',
+    '081A' => 'Serbo-Croatian (Cyrillic)',
+    '0C07' => 'German (Austrian)',
+    '0C09' => 'English (Australian)',
+    '0C0A' => 'Spanish (Modern)',
+    '0C0C' => 'French (Canadian)',
+    '1009' => 'English (Canadian)',
+    '100C' => 'French (Swiss)',
 );
 
 # Information extracted from PE COFF (Windows EXE) file header
@@ -98,7 +215,7 @@ my %resourceType = (
         Name => 'TimeStamp',
         Format => 'int32u',
         Groups => { 2 => 'Time' },
-        ValueConv => 'Image::ExifTool::ConvertUnixTime($val,"local")',
+        ValueConv => 'ConvertUnixTime($val,1)',
         PrintConv => '$self->ConvertDateTime($val)',
     },
     10 => {
@@ -153,7 +270,7 @@ my %resourceType = (
             1 => 'Native',
             2 => 'Windows GUI',
             3 => 'Windows command line',
-            5 => 'OS/2 Command line', #5
+            5 => 'OS/2 command line', #5
             7 => 'POSIX command line',
             9 => 'Windows CE GUI',
             10 => 'EFI application',
@@ -251,8 +368,10 @@ my %resourceType = (
 # (see http://msdn.microsoft.com/en-us/library/aa381049.aspx)
 %Image::ExifTool::EXE::PEString = (
     GROUPS => { 2 => 'Other' },
+    VARS => { NO_ID => 1 },
     NOTES => q{
-        Resource strings found in Windows PE files.  ExifTool will extract any
+        Resource strings found in Windows PE files.  The B<TagID>'s are not shown
+        because they are the same as the B<Tag Name>.  ExifTool will extract any
         existing StringFileInfo tags even if not listed in this table.
     },
     LanguageCode => {
@@ -262,121 +381,8 @@ my %resourceType = (
         # (also see ftp://ftp.dyu.edu.tw/pub/cpatch/faq/tech/tech_nlsnt.txt)
         # (not a complete set)
         PrintString => 1,
-        PrintConv => {
-            '0000' => 'Neutral',
-            '007F' => 'Invariant',
-            '0400' => 'Process default',
-            '0401' => 'Arabic',
-            '0402' => 'Bulgarian',
-            '0403' => 'Catalan',
-            '0404' => 'Chinese (Traditional)',
-            '0405' => 'Czech',
-            '0406' => 'Danish',
-            '0407' => 'German',
-            '0408' => 'Greek',
-            '0409' => 'English (U.S.)',
-            '040A' => 'Spanish (Castilian)',
-            '040B' => 'Finnish',
-            '040C' => 'French',
-            '040D' => 'Hebrew',
-            '040E' => 'Hungarian',
-            '040F' => 'Icelandic',
-            '0410' => 'Italian',
-            '0411' => 'Japanese',
-            '0412' => 'Korean',
-            '0413' => 'Dutch',
-            '0414' => 'Norwegian (Bokml)',
-            '0415' => 'Polish',
-            '0416' => 'Portuguese (Brazilian)',
-            '0417' => 'Rhaeto-Romanic',
-            '0418' => 'Romanian',
-            '0419' => 'Russian',
-            '041A' => 'Croato-Serbian (Latin)',
-            '041B' => 'Slovak',
-            '041C' => 'Albanian',
-            '041D' => 'Swedish',
-            '041E' => 'Thai',
-            '041F' => 'Turkish',
-            '0420' => 'Urdu',
-            # 0421-0493 ref 6
-            '0421' => 'Indonesian',
-            '0422' => 'Ukrainian',
-            '0423' => 'Belarusian',
-            '0424' => 'Slovenian',
-            '0425' => 'Estonian',
-            '0426' => 'Latvian',
-            '0427' => 'Lithuanian',
-            '0428' => 'Maori',
-            '0429' => 'Farsi',
-            '042a' => 'Vietnamese',
-            '042b' => 'Armenian',
-            '042c' => 'Azeri',
-            '042d' => 'Basque',
-            '042e' => 'Sorbian',
-            '042f' => 'Macedonian',
-            '0430' => 'Sutu',
-            '0431' => 'Tsonga',
-            '0432' => 'Tswana',
-            '0433' => 'Venda',
-            '0434' => 'Xhosa',
-            '0435' => 'Zulu',
-            '0436' => 'Afrikaans',
-            '0437' => 'Georgian',
-            '0438' => 'Faeroese',
-            '0439' => 'Hindi',
-            '043a' => 'Maltese',
-            '043b' => 'Saami',
-            '043c' => 'Gaelic',
-            '043e' => 'Malay',
-            '043f' => 'Kazak',
-            '0440' => 'Kyrgyz',
-            '0441' => 'Swahili',
-            '0443' => 'Uzbek',
-            '0444' => 'Tatar',
-            '0445' => 'Bengali',
-            '0446' => 'Punjabi',
-            '0447' => 'Gujarati',
-            '0448' => 'Oriya',
-            '0449' => 'Tamil',
-            '044a' => 'Telugu',
-            '044b' => 'Kannada',
-            '044c' => 'Malayalam',
-            '044d' => 'Assamese',
-            '044e' => 'Marathi',
-            '044f' => 'Sanskrit',
-            '0450' => 'Mongolian',
-            '0456' => 'Galician',
-            '0457' => 'Konkani',
-            '0458' => 'Manipuri',
-            '0459' => 'Sindhi',
-            '045a' => 'Syriac',
-            '0460' => 'Kashmiri',
-            '0461' => 'Nepali',
-            '0465' => 'Divehi',
-            '047f' => 'Invariant',
-            '048f' => 'Esperanto',
-            '0490' => 'Walon',
-            '0491' => 'Cornish',
-            '0492' => 'Welsh',
-            '0493' => 'Breton',
-            '0800' => 'Neutral 2',
-            '0804' => 'Chinese (Simplified)',
-            '0807' => 'German (Swiss)',
-            '0809' => 'English (British)',
-            '080A' => 'Spanish (Mexican)',
-            '080C' => 'French (Belgian)',
-            '0810' => 'Italian (Swiss)',
-            '0813' => 'Dutch (Belgian)',
-            '0814' => 'Norwegian (Nynorsk)',
-            '0816' => 'Portuguese',
-            '081A' => 'Serbo-Croatian (Cyrillic)',
-            '0C07' => 'German (Austrian)',
-            '0C09' => 'English (Australian)',
-            '0C0A' => 'Spanish (Modern)',
-            '0C0C' => 'French (Canadian)',
-            '1009' => 'English (Canadian)',
-            '100C' => 'French (Swiss)',
-        },
+        SeparateTable => 1,
+        PrintConv => \%languageCode,
     },
     CharacterSet => {
         Notes => 'extracted from the StringFileInfo value',
@@ -384,15 +390,15 @@ my %resourceType = (
         # (also see http://blog.chinaunix.net/u1/41189/showart_345768.html)
         PrintString => 1,
         PrintConv => {
-            '0000' => '7-bit ASCII',
-            '03A4' => 'Windows, Japan (Shift - JIS X-0208)',
-            '03A8' => 'Windows, Chinese (Simplified)',
-            '03B5' => 'Windows, Korea (Shift - KSC 5601)',
-            '03B6' => 'Windows, Taiwan (GB5)',
-            '04B0' => 'Unicode',
-            '04E2' => 'Windows, Latin-2 (Eastern European)',
+            '0000' => 'ASCII',
+            '03A4' => 'Windows, Japan (Shift - JIS X-0208)', # cp932
+            '03A8' => 'Windows, Chinese (Simplified)', # cp936
+            '03B5' => 'Windows, Korea (Shift - KSC 5601)', # cp949
+            '03B6' => 'Windows, Taiwan (Big5)', # cp950
+            '04B0' => 'Unicode', # UCS-2
+            '04E2' => 'Windows, Latin2 (Eastern European)',
             '04E3' => 'Windows, Cyrillic',
-            '04E4' => 'Windows, Multilingual',
+            '04E4' => 'Windows, Latin1',
             '04E5' => 'Windows, Greek',
             '04E6' => 'Windows, Turkish',
             '04E7' => 'Windows, Hebrew',
@@ -428,10 +434,17 @@ my %resourceType = (
     0 => 'CPUArchitecture',
     1 => 'CPUByteOrder',
     2 => 'CPUCount',
+    # ref /System/Library/Frameworks/Kernel.framework/Versions/A/Headers/mach/machine.h
     3 => {
         Name => 'CPUType',
         List => 1,
         PrintConv => {
+            # handle 64-bit flag (0x1000000)
+            OTHER => sub {
+                my ($val, $inv, $conv) = @_;
+                my $v = $val & 0xfeffffff;
+                return $$conv{$v} ? "$$conv{$v} 64-bit" : "Unknown ($val)";
+            },
             -1 => 'Any',
             1 => 'VAX',
             2 => 'ROMP',
@@ -441,6 +454,7 @@ my %resourceType = (
             7 => 'x86',
             8 => 'MIPS',
             9 => 'NS32532',
+            10 => 'MC98000',
             11 => 'HPPA',
             12 => 'ARM',
             13 => 'MC88000',
@@ -450,17 +464,23 @@ my %resourceType = (
             17 => 'RS6000',
             18 => 'PowerPC',
             255 => 'VEO',
-            0x1000007 => 'x86 64-bit',
-            0x1000012 => 'PowerPC 64-bit',
         },
     },
+    # ref /System/Library/Frameworks/Kernel.framework/Versions/A/Headers/mach/machine.h
     4 => {
         Name => 'CPUSubtype',
         List => 1,
         PrintConv => {
-            # in theory, subtype can by -1 for multiple CPU types,
+            # handle 64-bit flags on CPUType (0x1000000) and CPUSubtype (0x80000000)
+            OTHER => sub {
+                my ($val, $inv, $conv) = @_;
+                my @v = split ' ', $val;
+                my $v = ($v[0] & 0xfeffffff) . ' ' . ($v[1] & 0x7fffffff);
+                return $$conv{$v} ? "$$conv{$v} 64-bit" : "Unknown ($val)";
+            },
+            # in theory, subtype can be -1 for multiple CPU types,
             # but in practice I'm not sure anyone uses this - PH
-            '1 0' => 'VAX (all)', 
+            '1 0' => 'VAX (all)',
             '1 1' => 'VAX780',
             '1 2' => 'VAX785',
             '1 3' => 'VAX750',
@@ -490,30 +510,38 @@ my %resourceType = (
             '5 3' => 'NS32332 APC FPU (32081)',
             '5 4' => 'NS32332 APC FPA (Weitek)',
             '5 5' => 'NS32332 XPC (532)',
+            '6 1' => 'MC680x0 (all)',
+            '6 2' => 'MC68040',
+            '6 3' => 'MC68030',
             '7 3' => 'i386 (all)',
             '7 4' => 'i486',
             '7 132' => 'i486SX',
             '7 5' => 'i586',
             '7 22' => 'Pentium Pro',
-            '7 54' => 'PentiumII M3',
-            '7 86' => 'PentiumII M5',
+            '7 54' => 'Pentium II M3',
+            '7 86' => 'Pentium II M5',
+            '7 103' => 'Celeron',
+            '7 119' => 'Celeron Mobile',
+            '7 8' => 'Pentium III',
+            '7 24' => 'Pentium III M',
+            '7 40' => 'Pentium III Xeon',
+            '7 9' => 'Pentium M',
             '7 10' => 'Pentium 4',
-            '16777223 3' => 'i386 64-bit (all)',
-            '16777223 4' => 'i486 64-bit',
-            '16777223 132' => 'i486SX 64-bit',
-            '16777223 5' => 'i586 64-bit',
-            '16777223 22' => 'Pentium Pro 64-bit',
-            '16777223 54' => 'PentiumII M3 64-bit',
-            '16777223 86' => 'PentiumII M5 64-bit',
-            '16777223 10' => 'Pentium 4 64-bit',
+            '7 26' => 'Pentium 4 M',
+            '7 11' => 'Itanium',
+            '7 27' => 'Itanium 2',
+            '7 12' => 'Xeon',
+            '7 28' => 'Xeon MP',
             '8 0' => 'MIPS (all)',
             '8 1' => 'MIPS R2300',
             '8 2' => 'MIPS R2600',
             '8 3' => 'MIPS R2800',
             '8 4' => 'MIPS R2000a',
-            '6 1' => 'MC680x0 (all)',
-            '6 2' => 'MC68040', 
-            '6 3' => 'MC68030',
+            '8 5' => 'MIPS R2000',
+            '8 6' => 'MIPS R3000a',
+            '8 7' => 'MIPS R3000',
+            '10 0' => 'MC98000 (all)',
+            '10 1' => 'MC98601',
             '11 0' => 'HPPA (all)',
             '11 1' => 'HPPA 7100LC',
             '12 0' => 'ARM (all)',
@@ -521,7 +549,11 @@ my %resourceType = (
             '12 2' => 'ARM A500',
             '12 3' => 'ARM A440',
             '12 4' => 'ARM M4',
-            '12 5' => 'ARM A680',
+            '12 5' => 'ARM A680/V4T',
+            '12 6' => 'ARM V6',
+            '12 7' => 'ARM V5TEJ',
+            '12 8' => 'ARM XSCALE',
+            '12 9' => 'ARM V7',
             '13 0' => 'MC88000 (all)',
             '13 1' => 'MC88100',
             '13 2' => 'MC88110',
@@ -547,7 +579,6 @@ my %resourceType = (
             '18 10' => 'PowerPC 7400',
             '18 11' => 'PowerPC 7450',
             '18 100' => 'PowerPC 970',
-            '16777234 0' => 'PowerPC 64-bit (all)',
             '255 1' => 'VEO 1',
             '255 2' => 'VEO 2',
         },
@@ -671,6 +702,43 @@ my %resourceType = (
     },
 );
 
+# Microsoft compiled help format (ref http://www.russotto.net/chm/chmformat.html)
+%Image::ExifTool::EXE::CHM = (
+    PROCESS_PROC => \&Image::ExifTool::ProcessBinaryData,
+    GROUPS => { 2 => 'Other' },
+    NOTES => 'Tags extracted from Microsoft Compiled HTML files.',
+    FORMAT => 'int32u',
+    1 => { Name => 'CHMVersion' },
+    # 2 - total header length
+    # 3 - 1
+    # 4 - low bits of date/time value plus 42 (ref http://www.nongnu.org/chmspec/latest/ITSF.html)
+    5 => {
+        Name => 'LanguageCode',
+        SeparateTable => 1,
+        ValueConv => 'sprintf("%.4X", $val)',
+        PrintConv => \%languageCode,
+    },
+);
+
+#------------------------------------------------------------------------------
+# Extract information from a CHM file
+# Inputs: 0) ExifTool object reference, 1) dirInfo reference
+# Returns: 1 on success, 0 if this wasn't a valid CHM file
+sub ProcessCHM($$)
+{
+    my ($exifTool, $dirInfo) = @_;
+    my $raf = $$dirInfo{RAF};
+    my $buff;
+
+    return 0 unless $raf->Read($buff, 56) == 56 and
+        $buff =~ /^ITSF.{20}\x10\xfd\x01\x7c\xaa\x7b\xd0\x11\x9e\x0c\0\xa0\xc9\x22\xe6\xec/;
+    my $tagTablePtr = GetTagTable('Image::ExifTool::EXE::CHM');
+    $exifTool->SetFileType();
+    SetByteOrder('II');
+    $exifTool->ProcessDirectory({ DataPt => \$buff }, $tagTablePtr);
+    return 1;
+}
+
 #------------------------------------------------------------------------------
 # Read Unicode string (null terminated) from resource
 # Inputs: 0) data ref, 1) start offset, 2) optional ExifTool object ref
@@ -688,8 +756,8 @@ sub ReadUnicodeStr($$;$)
         $str .= $ch;
     }
     $pos += 2 if $pos & 0x03;
-    $str = $exifTool ? $exifTool->Unicode2Charset($str) : Image::ExifTool::Unicode2UTF8($str,'v');
-    return ($str, $pos);
+    my $to = $exifTool ? $exifTool->Options('Charset') : 'UTF8';
+    return (Image::ExifTool::Decode(undef,$str,'UCS2','II',$to), $pos);
 }
 
 #------------------------------------------------------------------------------
@@ -738,7 +806,10 @@ sub ProcessPEVersion($$)
                 ($string, $pt) = ReadUnicodeStr($dataPt, $pt + 6);
                 unless ($index) {
                     # separate the language code and character set
-                    my ($lang, $char);
+                    # (not sure what the CharacterSet tag is for, but the string
+                    # values stored here are UCS-2 in all my files even if the
+                    # CharacterSet is otherwise)
+                    my $char;
                     if (length($string) > 4) {
                         $char = substr($string, 4);
                         $string = substr($string, 0, 4);
@@ -753,7 +824,7 @@ sub ProcessPEVersion($$)
                     my $name = $tag;
                     $name =~ tr/-_a-zA-Z0-9//dc; # remove illegal characters
                     next unless length $name;
-                    Image::ExifTool::AddTagToTable($tagTablePtr, $tag, { Name => $name });
+                    AddTagToTable($tagTablePtr, $tag, { Name => $name });
                 }
                 # get tag value (converted to current Charset)
                 if ($valLen) {
@@ -918,13 +989,12 @@ sub ProcessEXE($$)
         SetByteOrder('II');
         my ($cblp, $cp, $lfarlc, $lfanew) = unpack('x2v2x18vx34V', $buff);
         my $fileSize = ($cp - ($cblp ? 1 : 0)) * 512 + $cblp;
-        return 0 if $fileSize < 0x40 or $fileSize < $lfarlc;
-        # read the Windows PE header
-        if ($lfarlc == 0x40 and $fileSize > $lfanew + 2 and
-            # read the Windows NE, PE or LE (virtual device driver) header
-            $raf->Seek($lfanew, 0) and $raf->Read($buff, 0x40) and
-            $buff =~ /^(NE|PE|LE)/)
-        {
+        #(patch to accommodate observed 64-bit files)
+        #return 0 if $fileSize < 0x40 or $fileSize < $lfarlc;
+        return 0 if $fileSize < 0x40;
+        # read the Windows NE, PE or LE (virtual device driver) header
+        #if ($lfarlc == 0x40 and $fileSize > $lfanew + 2 and ...
+        if ($raf->Seek($lfanew, 0) and $raf->Read($buff, 0x40) and $buff =~ /^(NE|PE|LE)/) {
             if ($1 eq 'NE') {
                 if ($size >= 0x40) { # NE header is 64 bytes (ref 2)
                     # check for DLL
@@ -943,8 +1013,10 @@ sub ProcessEXE($$)
                 #  20 int16u SizeOfOptionalHeader
                 #  22 int16u Characteristics
                 if ($size >= 24) {  # PE header is 24 bytes (plus optional header)
+                    my $machine = $Image::ExifTool::EXE::Main{0}{PrintConv}{Get16u(\$buff, 4)} || '';
+                    my $winType = $machine =~ /64/ ? 'Win64' : 'Win32';
                     my $flags = Get16u(\$buff, 22);
-                    $exifTool->SetFileType('Win32 ' . ($flags & 0x2000 ? 'DLL' : 'EXE'));
+                    $exifTool->SetFileType($winType . ' ' . ($flags & 0x2000 ? 'DLL' : 'EXE'));
                     # read the rest of the optional header if necessary
                     my $optSize = Get16u(\$buff, 20);
                     my $more = $optSize + 24 - $size;
@@ -1013,7 +1085,7 @@ sub ProcessEXE($$)
             my $i;
             for ($i=0; $i<$count; ++$i) {
                 my $cpuType = Get32s(\$buff, 8 + $i * 20);
-                my $cpuSubtype = Get32s(\$buff, 12 + $i * 20);
+                my $cpuSubtype = Get32u(\$buff, 12 + $i * 20);
                 $exifTool->HandleTag($tagTablePtr, 3, $cpuType);
                 $exifTool->HandleTag($tagTablePtr, 4, "$cpuType $cpuSubtype");
             }
@@ -1122,7 +1194,7 @@ library files.
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

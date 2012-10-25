@@ -116,12 +116,13 @@ my @default_ztable_dn = (
 #------------------------------------------------------------------------------
 # New - create new BZZ object
 # Inputs: 0) reference to BZZ object or BZZ class name
+# Returns: blessed BZZ object ref
 sub new
 {
     local $_;
     my $that = shift;
     my $class = ref($that) || $that || 'Image::ExifTool::BZZ';
-    my $self = bless {}, $class;
+    return bless {}, $class;
 }
 
 #------------------------------------------------------------------------------
@@ -444,7 +445,7 @@ compression ability).
 
 =head1 AUTHOR
 
-Copyright 2003-2008, Phil Harvey (phil at owl.phy.queensu.ca)
+Copyright 2003-2012, Phil Harvey (phil at owl.phy.queensu.ca)
 Copyright 2002, Leon Bottou and Yann Le Cun
 Copyright 2001, AT&T
 Copyright 1999-2001, LizardTech Inc.
